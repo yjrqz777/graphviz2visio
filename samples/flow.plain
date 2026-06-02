@@ -1,0 +1,14 @@
+graph 1 2.6635 5.9375
+node start 0.62426 5.6875 0.8922 0.5 开始 rounded ellipse black lightgrey
+node input 0.62426 4.6736 1.1806 0.5 输入数据 rounded box black lightgrey
+node process 0.62426 3.6597 1.1806 0.5 处理数据 rounded box black lightgrey
+node decision 1.4437 2.4618 2.4395 0.5 "数据有效?" rounded diamond black lightgrey
+node output 1.4437 1.2639 1.1806 0.5 输出结果 rounded box black lightgrey
+node end 1.4437 0.25 0.8922 0.5 结束 rounded ellipse black lightgrey
+edge start input 4 0.62426 5.4349 0.62426 5.3295 0.62426 5.2028 0.62426 5.0839 solid black
+edge input process 4 0.62426 4.421 0.62426 4.3156 0.62426 4.1889 0.62426 4.07 solid black
+edge process decision 4 0.79405 3.4034 0.91325 3.2332 1.0743 3.0032 1.2062 2.8148 solid black
+edge decision process 4 0.17969 2.4618 -0.17466 2.4618 0.094428 2.9323 0.34174 3.2802 否 0.3557 3.0608 solid black
+edge decision output 4 1.4437 2.2055 1.4437 2.0533 1.4437 1.8533 1.4437 1.6781 是 1.5635 1.8628 solid black
+edge output end 4 1.4437 1.0113 1.4437 0.90591 1.4437 0.77919 1.4437 0.66027 solid black
+stop

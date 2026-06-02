@@ -1,0 +1,16 @@
+digraph flowchart {
+    rankdir = TB;
+    node [shape = box, style = rounded];
+    start [label = "开始", shape = ellipse];
+    input [label = "输入数据"];
+    process [label = "处理数据"];
+    decision [label = "数据有效?", shape = diamond];
+    output [label = "输出结果"];
+    end [label = "结束", shape = ellipse];
+    start -> input;
+    input -> process;
+    process -> decision;
+    decision -> output [label = "是"];
+    decision -> process [label = "否", tailport = w];
+    output -> end;
+    }

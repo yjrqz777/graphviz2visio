@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Flow2Visio.Cli/Flow2Visio.Cli.csproj" />
+    <Project Path="src/Flow2Visio.Core/Flow2Visio.Core.csproj" />
+    <Project Path="src/Flow2Visio.Graphviz/Flow2Visio.Graphviz.csproj" />
+    <Project Path="src/Flow2Visio.Visio/Flow2Visio.Visio.csproj" />
+  </Folder>
+</Solution>
