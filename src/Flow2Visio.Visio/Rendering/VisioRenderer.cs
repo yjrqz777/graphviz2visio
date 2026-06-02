@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -13,7 +14,7 @@ namespace Flow2Visio.Visio.Rendering
         public static void RenderPlainToVisio(string plainPath, string outputVsdxPath, bool visible = false)
         {
             if (!File.Exists(plainPath))
-                throw new FileNotFoundException("找不到 plain 文件", plainPath);
+                throw new FileNotFoundException("Plain file not found.", plainPath);
 
             var graph = PlainParser.Parse(plainPath);
 
@@ -29,7 +30,7 @@ namespace Flow2Visio.Visio.Rendering
             {
                 Type visioType = Type.GetTypeFromProgID("Visio.Application");
                 if (visioType == null)
-                    throw new InvalidOperationException("未找到 Visio.Application，请确认已安装 Microsoft Visio。");
+                    throw new InvalidOperationException("Visio.Application was not found. Please confirm Microsoft Visio is installed.");
 
                 dynamic dapp = Activator.CreateInstance(visioType);
                 app = dapp;
@@ -41,13 +42,17 @@ namespace Flow2Visio.Visio.Rendering
                 dynamic dpage = dapp.ActivePage;
                 page = dpage;
 
-                // 注意：这里用 (object)dpage 避免 dynamic 导致 tuple 命名字段丢失
+                // Cast to object so tuple field names survive dynamic binding.
                 var offset = PreparePage((object)dpage, graph, 1.0);
                 double offsetX = offset.offsetX;
                 double offsetY = offset.offsetY;
 
+                var nodesById = new Dictionary<string, NodeInfo>(StringComparer.Ordinal);
+                foreach (var node in graph.Nodes)
+                    nodesById[node.Id] = node;
+
                 foreach (var edge in graph.Edges)
-                    DrawEdge(dpage, edge, offsetX, offsetY);
+                    DrawEdge(dpage, edge, nodesById, offsetX, offsetY);
 
                 foreach (var node in graph.Nodes)
                     DrawNode(dpage, node, offsetX, offsetY);
@@ -212,41 +217,130 @@ namespace Flow2Visio.Visio.Rendering
             ReleaseCom(l4);
         }
 
-        private static void DrawEdge(dynamic page, EdgeInfo edge, double ox, double oy)
+        private static void DrawEdge(dynamic page, EdgeInfo edge, IDictionary<string, NodeInfo> nodesById, double ox, double oy)
         {
-            var pts = BezierHelper.SplineToPolyline(edge.Points, 24);
-            if (pts == null || pts.Count < 2)
+            var rawPts = edge.Points;
+            if (rawPts == null || rawPts.Count < 2)
                 return;
 
-            object lastLine = null;
+            bool isLine = IsLineSegment(rawPts);
+            NodeInfo fromNode;
+            NodeInfo toNode;
+            nodesById.TryGetValue(edge.From ?? string.Empty, out fromNode);
+            nodesById.TryGetValue(edge.To ?? string.Empty, out toNode);
 
-            try
+            bool dashed = string.Equals(edge.Style, "dashed", StringComparison.OrdinalIgnoreCase);
+
+            if (isLine)
             {
-                for (int i = 0; i < pts.Count - 1; i++)
-                {
-                    Pt p1 = new Pt(ox + pts[i].X, oy + pts[i].Y);
-                    Pt p2 = new Pt(ox + pts[i + 1].X, oy + pts[i + 1].Y);
-
-                    lastLine = DrawSimpleLine(
-                        page,
-                        p1,
-                        p2,
-                        edge.Color,
-                        string.Equals(edge.Style, "dashed", StringComparison.OrdinalIgnoreCase),
-                        false);
-                }
-
-                if (lastLine != null)
-                {
-                    dynamic dl = lastLine;
-                    SafeSetFormula(dl, "EndArrow", "4");
-                    SafeSetFormula(dl, "LineWeight", "0.014 in");
-                }
+                Pt p1 = AttachToNodeBoundary(fromNode, rawPts[0], rawPts[rawPts.Count - 1]);
+                Pt p2 = AttachToNodeBoundary(toNode, rawPts[rawPts.Count - 1], rawPts[0]);
+                DrawAndReleaseLine(page, OffsetPoint(p1, ox, oy), OffsetPoint(p2, ox, oy), edge.Color, dashed, true);
+                return;
             }
-            finally
+
+            var pts = BezierHelper.SplineToPolyline(rawPts, 24);
+            if (pts.Count < 2)
+                return;
+
+            pts[0] = AttachToNodeBoundary(fromNode, pts[0], pts[1]);
+            pts[pts.Count - 1] = AttachToNodeBoundary(toNode, pts[pts.Count - 1], pts[pts.Count - 2]);
+
+            for (int i = 0; i < pts.Count - 1; i++)
             {
-                ReleaseCom(lastLine);
+                DrawAndReleaseLine(
+                    page,
+                    OffsetPoint(pts[i], ox, oy),
+                    OffsetPoint(pts[i + 1], ox, oy),
+                    edge.Color,
+                    dashed,
+                    i == pts.Count - 2);
             }
+        }
+
+        private static void DrawAndReleaseLine(dynamic page, Pt p1, Pt p2, string color, bool dashed, bool endArrow)
+        {
+            var line = DrawSimpleLine(page, p1, p2, color, dashed, endArrow);
+            ReleaseCom(line);
+        }
+
+        private static Pt OffsetPoint(Pt point, double ox, double oy)
+        {
+            return new Pt(ox + point.X, oy + point.Y);
+        }
+
+        private static Pt AttachToNodeBoundary(NodeInfo node, Pt fallbackPoint, Pt towardPoint)
+        {
+            if (node == null)
+                return fallbackPoint;
+
+            double dx = towardPoint.X - node.Cx;
+            double dy = towardPoint.Y - node.Cy;
+            if (Math.Abs(dx) < 0.000001 && Math.Abs(dy) < 0.000001)
+            {
+                dx = fallbackPoint.X - node.Cx;
+                dy = fallbackPoint.Y - node.Cy;
+            }
+
+            double scale = GetBoundaryScale(node, dx, dy);
+            if (scale <= 0)
+                return fallbackPoint;
+
+            return new Pt(node.Cx + dx * scale, node.Cy + dy * scale);
+        }
+
+        private static double GetBoundaryScale(NodeInfo node, double dx, double dy)
+        {
+            double hw = Math.Max(node.W / 2.0, 0.000001);
+            double hh = Math.Max(node.H / 2.0, 0.000001);
+            string shapeType = (node.Shape ?? "box").ToLowerInvariant();
+
+            if (Math.Abs(dx) < 0.000001 && Math.Abs(dy) < 0.000001)
+                return 0;
+
+            if (shapeType == "ellipse")
+                return 1.0 / Math.Sqrt(dx * dx / (hw * hw) + dy * dy / (hh * hh));
+
+            if (shapeType == "diamond")
+                return 1.0 / (Math.Abs(dx) / hw + Math.Abs(dy) / hh);
+
+            double scaleX = Math.Abs(dx) < 0.000001 ? double.PositiveInfinity : hw / Math.Abs(dx);
+            double scaleY = Math.Abs(dy) < 0.000001 ? double.PositiveInfinity : hh / Math.Abs(dy);
+            return Math.Min(scaleX, scaleY);
+        }
+
+        /// <summary>
+        /// Detects whether all points represent one straight segment.
+        /// </summary>
+        private static bool IsLineSegment(IList<Pt> points, double tolerance = 0.01)
+        {
+            if (points == null || points.Count < 3)
+                return true;
+
+            // Use the first and last points as the target line.
+            Pt p1 = points[0];
+            Pt pn = points[points.Count - 1];
+
+            double dx = pn.X - p1.X;
+            double dy = pn.Y - p1.Y;
+            double lineLen = Math.Sqrt(dx * dx + dy * dy);
+
+            if (lineLen < tolerance)
+                return true;
+
+            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕濠⒀冪Ч瀵灚寰勬径搴″箑闂傚倸鍊搁顓㈠磻閿濆鍙婃い鏍ㄧ閸庡﹪鏌涢敂鍝勫缂佺粯鐗犲鍫曟晬閸曨剛鍑界紓浣瑰劤閵囨绮?
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                Pt p = points[i];
+
+                // Perpendicular distance from the point to the target line.
+                double dist = Math.Abs((p.Y - p1.Y) * dx - (p.X - p1.X) * dy) / lineLen;
+
+                if (dist > tolerance)
+                    return false;
+            }
+
+            return true;
         }
 
         private static void DrawEdgeLabel(dynamic page, EdgeInfo edge, double ox, double oy)

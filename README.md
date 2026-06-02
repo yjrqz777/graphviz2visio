@@ -4,6 +4,8 @@
 
 Flow2Visio 是一个命令行工具，利用 Graphviz 强大的自动布局能力生成坐标，再通过 Visio COM 接口将流程图绘制为原生 Visio 图形。生成的 `.vsdx` 文件完全可编辑，方便后续在 Visio 中微调。
 
+![效果图](doc\img\image_22.png "效果图")
+
 ## 工作流程
 
 ```

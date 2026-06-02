@@ -36,7 +36,7 @@ Desktop.ini
 ._*
 
 ## Output
-output/
+# output/
 
 ## Logs
 *.log
