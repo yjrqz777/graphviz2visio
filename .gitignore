@@ -1,5 +1,5 @@
 ## .NET
-bin/
+src/*/bin/
 obj/
 *.user
 *.suo

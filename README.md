@@ -1,8 +1,8 @@
-# Flow2Visio
+# Graphviz2Visio
 
 **将 Graphviz DOT 流程图转换为可编辑的 Microsoft Visio (.vsdx) 文件。**
 
-Flow2Visio 是一个命令行工具，利用 Graphviz 强大的自动布局能力生成坐标，再通过 Visio COM 接口将流程图绘制为原生 Visio 图形。生成的 `.vsdx` 文件完全可编辑，方便后续在 Visio 中微调。
+Graphviz2Visio 是一个命令行工具，利用 Graphviz 强大的自动布局能力生成坐标，再通过 Visio COM 接口将流程图绘制为原生 Visio 图形。生成的 `.vsdx` 文件完全可编辑，方便后续在 Visio 中微调。
 
 ![效果图](doc/img/image_22.png "效果图")
 
@@ -41,35 +41,35 @@ cd DotPlainVisio
 ### 2. 编译
 
 ```bash
-dotnet build Flow2Visio.slnx
+dotnet build Graphviz2Visio.slnx
 ```
 
 ### 3. 验证 Graphviz 识别
 
 ```bash
-dotnet run --project src/Flow2Visio.Cli -- where-dot
+dotnet run --project src/Graphviz2Visio.Cli -- where-dot
 ```
 
 正常输出：
 
 ```
-D:\...\Flow2Visio\tools\Graphviz-15.0.0-win64\bin\dot.exe
+D:\...\Graphviz2Visio\tools\Graphviz-15.0.0-win64\bin\dot.exe
 ```
 
 ### 4. 转换流程图
 
 ```bash
 # DOT → Plain
-dotnet run --project src/Flow2Visio.Cli -- dot2plain samples\flow.dot samples\flow.plain
+dotnet run --project src/Graphviz2Visio.Cli -- dot2plain samples\flow.dot samples\flow.plain
 
 # Plain → Visio
-dotnet run --project src/Flow2Visio.Cli -- plain2visio samples\flow.plain output\flow.vsdx --visible
+dotnet run --project src/Graphviz2Visio.Cli -- plain2visio samples\flow.plain output\flow.vsdx --visible
 ```
 
 ## 命令参考
 
 ```
-Flow2Visio.Cli <command> [arguments]
+Graphviz2Visio.Cli <command> [arguments]
 ```
 
 | 命令 | 说明 | 用法 |
@@ -83,19 +83,19 @@ Flow2Visio.Cli <command> [arguments]
 ## 项目结构
 
 ```
-Flow2Visio/
+Graphviz2Visio/
 ├── src/
-│   ├── Flow2Visio.Core/           # 核心库
+│   ├── Graphviz2Visio.Core/           # 核心库
 │   │   ├── Models/                # 数据模型 (Pt, GraphInfo, NodeInfo, EdgeInfo)
 │   │   ├── Parsing/               # Plain 格式解析器
 │   │   └── Utils/                 # 工具类 (Tokenizer, BezierHelper, ColorHelper)
-│   ├── Flow2Visio.Graphviz/       # Graphviz 模块
+│   ├── Graphviz2Visio.Graphviz/       # Graphviz 模块
 │   │   ├── GraphvizLocator.cs     # 自动定位 dot.exe
 │   │   └── GraphvizRunner.cs      # 调用 dot.exe 执行转换
-│   ├── Flow2Visio.Visio/          # Visio 渲染模块
+│   ├── Graphviz2Visio.Visio/          # Visio 渲染模块
 │   │   └── Rendering/
 │   │       └── VisioRenderer.cs   # 通过 dynamic COM 绘制图形
-│   └── Flow2Visio.Cli/            # 命令行入口
+│   └── Graphviz2Visio.Cli/            # 命令行入口
 │       └── Program.cs
 ├── tools/
 │   └── Graphviz-15.0.0-win64/        # 内嵌的 Graphviz
