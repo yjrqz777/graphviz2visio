@@ -25,6 +25,8 @@ namespace Graphviz2Visio.Visio.Rendering
             object app = null;
             object doc = null;
             object page = null;
+            object flowchartStencil = null;
+            object decisionMaster = null;
 
             try
             {
@@ -47,6 +49,27 @@ namespace Graphviz2Visio.Visio.Rendering
                 double offsetX = offset.offsetX;
                 double offsetY = offset.offsetY;
 
+                // 如果包含菱形（判定）节点，提前打开 Visio 自带的"基本流程图形状"模具，
+                // 以便用标准 Decision master 直接落到页面，而不是用 4 条直线拼。
+                bool hasDiamond = false;
+                foreach (var n in graph.Nodes)
+                {
+                    if (string.Equals(n.Shape, "diamond", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasDiamond = true;
+                        break;
+                    }
+                }
+
+                dynamic dDecisionMaster = null;
+                if (hasDiamond)
+                {
+                    dynamic dStencil = OpenFlowchartStencil(dapp);
+                    flowchartStencil = dStencil;
+                    dDecisionMaster = FindDecisionMaster(dStencil);
+                    decisionMaster = dDecisionMaster;
+                }
+
                 var nodesById = new Dictionary<string, NodeInfo>(StringComparer.Ordinal);
                 foreach (var node in graph.Nodes)
                     nodesById[node.Id] = node;
@@ -55,10 +78,7 @@ namespace Graphviz2Visio.Visio.Rendering
                     DrawEdge(dpage, edge, nodesById, offsetX, offsetY);
 
                 foreach (var node in graph.Nodes)
-                    DrawNode(dpage, node, offsetX, offsetY);
-
-                foreach (var edge in graph.Edges)
-                    DrawEdgeLabel(dpage, edge, offsetX, offsetY);
+                    DrawNode(dpage, node, offsetX, offsetY, dDecisionMaster);
 
                 ddoc.SaveAs(Path.GetFullPath(outputVsdxPath));
                 ddoc.Close();
@@ -66,10 +86,78 @@ namespace Graphviz2Visio.Visio.Rendering
             }
             finally
             {
+                ReleaseCom(decisionMaster);
+                if (flowchartStencil != null)
+                {
+                    try { ((dynamic)flowchartStencil).Close(); } catch { }
+                    ReleaseCom(flowchartStencil);
+                }
                 ReleaseCom(page);
                 ReleaseCom(doc);
                 ReleaseCom(app);
             }
+        }
+
+        /// <summary>
+        /// 尝试打开 Visio 内置的"基本流程图形状"模具，失败返回 null。
+        /// 兼容多语言/多版本：优先 Application.GetBuiltInStencilFile，再尝试常见文件名。
+        /// </summary>
+        private static dynamic OpenFlowchartStencil(dynamic app)
+        {
+            var candidates = new List<string>();
+
+            // visBuiltInStencilFlowchart = 4, visMSDefault = -2
+            try
+            {
+                string builtIn = app.GetBuiltInStencilFile(4, -2);
+                if (!string.IsNullOrWhiteSpace(builtIn))
+                    candidates.Add(builtIn);
+            }
+            catch
+            {
+            }
+
+            candidates.AddRange(new[]
+            {
+                "BASFLO_M.VSSX",
+                "BASFLO_U.VSSX",
+                "Basic Flowchart Shapes.vssx",
+                "Basic Flowchart Shapes.vss",
+                "基本流程图形状.vssx"
+            });
+
+            // visOpenRO (2) | visOpenHidden (64) = 66
+            foreach (var name in candidates)
+            {
+                try
+                {
+                    return app.Documents.OpenEx(name, (short)66);
+                }
+                catch
+                {
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 从模具中查找"判定/Decision" master，找不到返回 null。
+        /// </summary>
+        private static dynamic FindDecisionMaster(dynamic stencil)
+        {
+            if (stencil == null)
+                return null;
+
+            // 优先用统一名称 NameU（跨语言稳定）
+            try { return stencil.Masters.ItemU("Decision"); } catch { }
+
+            // 回退到本地化名称
+            string[] localNames = { "Decision", "判定", "决定", "判断" };
+            foreach (var n in localNames)
+            {
+                try { return stencil.Masters[n]; } catch { }
+            }
+            return null;
         }
 
         private static (double offsetX, double offsetY) PreparePage(object pageObj, GraphInfo graph, double margin)
@@ -129,14 +217,14 @@ namespace Graphviz2Visio.Visio.Rendering
             return (offsetX, offsetY);
         }
 
-        private static void DrawNode(dynamic page, NodeInfo node, double ox, double oy)
+        private static void DrawNode(dynamic page, NodeInfo node, double ox, double oy, dynamic decisionMaster)
         {
             string shapeType = (node.Shape ?? "box").ToLowerInvariant();
 
             if (shapeType == "ellipse")
                 DrawEllipseNode(page, node, ox, oy);
             else if (shapeType == "diamond")
-                DrawDiamondNode(page, node, ox, oy);
+                DrawDiamondNode(page, node, ox, oy, decisionMaster);
             else
                 DrawBoxNode(page, node, ox, oy);
         }
@@ -182,10 +270,49 @@ namespace Graphviz2Visio.Visio.Rendering
             ReleaseCom(shape);
         }
 
-        private static void DrawDiamondNode(dynamic page, NodeInfo node, double ox, double oy)
+        private static void DrawDiamondNode(dynamic page, NodeInfo node, double ox, double oy, dynamic decisionMaster)
         {
             double cx = ox + node.Cx;
             double cy = oy + node.Cy;
+
+            // 优先使用 Visio 标准流程图模具中的"判定 (Decision)" master。
+            if (decisionMaster != null)
+            {
+                dynamic shape = null;
+                try
+                {
+                    shape = page.Drop(decisionMaster, cx, cy);
+
+                    // master 默认尺寸来自模具，需按 graphviz 给出的宽高重设。
+                    SafeSetFormula(shape, "Width", node.W.ToString(CultureInfo.InvariantCulture) + " in");
+                    SafeSetFormula(shape, "Height", node.H.ToString(CultureInfo.InvariantCulture) + " in");
+                    SafeSetFormula(shape, "PinX", cx.ToString(CultureInfo.InvariantCulture) + " in");
+                    SafeSetFormula(shape, "PinY", cy.ToString(CultureInfo.InvariantCulture) + " in");
+
+                    shape.Text = node.Label ?? node.Id;
+                    ApplyFillAndLine(shape, node.Color, node.FillColor);
+                    ApplyTextStyle(shape, 10.0);
+                    return;
+                }
+                catch
+                {
+                    // master Drop 失败则回退到手绘菱形。
+                }
+                finally
+                {
+                    if (shape != null)
+                        ReleaseCom(shape);
+                }
+            }
+
+            DrawDiamondNodeFallback(page, node, cx, cy);
+        }
+
+        /// <summary>
+        /// 兜底实现：用 4 条直线 + 透明文字框拼一个菱形。仅在找不到 Visio 判定 master 时使用。
+        /// </summary>
+        private static void DrawDiamondNodeFallback(dynamic page, NodeInfo node, double cx, double cy)
+        {
             double hw = node.W / 2.0;
             double hh = node.H / 2.0;
 
@@ -230,38 +357,106 @@ namespace Graphviz2Visio.Visio.Rendering
             nodesById.TryGetValue(edge.To ?? string.Empty, out toNode);
 
             bool dashed = string.Equals(edge.Style, "dashed", StringComparison.OrdinalIgnoreCase);
+            bool hasLabel = !string.IsNullOrWhiteSpace(edge.Label);
 
+            // 统一成"折线点序列 pts"：直线短路为 2 点，曲线最多 4 点（3 段）。
+            List<Pt> pts;
             if (isLine)
             {
-                Pt p1 = AttachToNodeBoundary(fromNode, rawPts[0], rawPts[rawPts.Count - 1]);
-                Pt p2 = AttachToNodeBoundary(toNode, rawPts[rawPts.Count - 1], rawPts[0]);
-                DrawAndReleaseLine(page, OffsetPoint(p1, ox, oy), OffsetPoint(p2, ox, oy), edge.Color, dashed, true);
-                return;
+                pts = new List<Pt>
+                {
+                    AttachToNodeBoundary(fromNode, rawPts[0], rawPts[rawPts.Count - 1]),
+                    AttachToNodeBoundary(toNode, rawPts[rawPts.Count - 1], rawPts[0])
+                };
+            }
+            else
+            {
+                pts = BezierHelper.SplineToPolyline(rawPts, 3);
+                if (pts.Count < 2)
+                    return;
+                pts[0] = AttachToNodeBoundary(fromNode, pts[0], pts[1]);
+                pts[pts.Count - 1] = AttachToNodeBoundary(toNode, pts[pts.Count - 1], pts[pts.Count - 2]);
             }
 
-            var pts = BezierHelper.SplineToPolyline(rawPts, 24);
-            if (pts.Count < 2)
-                return;
-
-            pts[0] = AttachToNodeBoundary(fromNode, pts[0], pts[1]);
-            pts[pts.Count - 1] = AttachToNodeBoundary(toNode, pts[pts.Count - 1], pts[pts.Count - 2]);
+            // 让 label 直接作为某一段线条 1D Shape 的 .Text，挑选离 graphviz 给定
+            // label 坐标最近的那一段承载（graphviz 与 pts 处于同一坐标系，未加 ox/oy）。
+            int labelSegIdx = hasLabel ? FindNearestSegmentIndex(pts, edge.LabelX, edge.LabelY) : -1;
 
             for (int i = 0; i < pts.Count - 1; i++)
             {
-                DrawAndReleaseLine(
-                    page,
-                    OffsetPoint(pts[i], ox, oy),
-                    OffsetPoint(pts[i + 1], ox, oy),
-                    edge.Color,
-                    dashed,
-                    i == pts.Count - 2);
+                Pt p1 = OffsetPoint(pts[i], ox, oy);
+                Pt p2 = OffsetPoint(pts[i + 1], ox, oy);
+                bool endArrow = (i == pts.Count - 2);
+
+                dynamic line = DrawSimpleLine(page, p1, p2, edge.Color, dashed, endArrow);
+                try
+                {
+                    if (i == labelSegIdx)
+                        AttachLabelToSegment(line, p1, p2, ox + edge.LabelX, oy + edge.LabelY, edge.Label);
+                }
+                finally
+                {
+                    ReleaseCom(line);
+                }
             }
         }
 
-        private static void DrawAndReleaseLine(dynamic page, Pt p1, Pt p2, string color, bool dashed, bool endArrow)
+        /// <summary>
+        /// 在折线 pts 的相邻段中，挑出"中点距离目标 (labelX, labelY) 最近"的段索引。
+        /// </summary>
+        private static int FindNearestSegmentIndex(List<Pt> pts, double labelX, double labelY)
         {
-            var line = DrawSimpleLine(page, p1, p2, color, dashed, endArrow);
-            ReleaseCom(line);
+            int best = 0;
+            double bestDist = double.PositiveInfinity;
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                double mx = (pts[i].X + pts[i + 1].X) / 2.0;
+                double my = (pts[i].Y + pts[i + 1].Y) / 2.0;
+                double dx = mx - labelX;
+                double dy = my - labelY;
+                double d = dx * dx + dy * dy;
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// 把 label 挂到一根 1D Shape 上作为它的 Text，并把文字定位到线条上。
+        /// 沿线方向位置取自 graphviz 给的 (globalX, globalY) 在线条局部 X 轴上的投影
+        /// (clamp 到段内)，垂直方向归零，让文字中心紧贴线段；同时给文本块加白底，
+        /// 用于遮挡穿过文字中间的线。
+        /// </summary>
+        private static void AttachLabelToSegment(dynamic line, Pt segStart, Pt segEnd, double globalX, double globalY, string label)
+        {
+            line.Text = label;
+            ApplyTextStyle(line, 8.0);
+
+            // 让标签相对"页面"始终水平：TxtAngle 是相对 shape 局部坐标系的角度，
+            // 而 1D Shape 的局部坐标系本身已沿 Begin→End 旋转；设为 -Angle 可抵消
+            // shape 的旋转，避免线条朝左/朝下时文字被翻转或倒置。
+            SafeSetFormula(line, "TxtAngle", "-Angle");
+
+            double dx = segEnd.X - segStart.X;
+            double dy = segEnd.Y - segStart.Y;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            if (len < 1e-6)
+                return;
+
+            double vx = dx / len;
+            double vy = dy / len;
+            double tx = globalX - segStart.X;
+            double ty = globalY - segStart.Y;
+
+            // 沿线方向投影；垂直方向直接归零，把文字中心贴回线上。
+            double localX = tx * vx + ty * vy;
+            double pinX = Math.Max(0.0, Math.Min(len, localX));
+
+            SafeSetFormula(line, "TxtPinX", pinX.ToString(CultureInfo.InvariantCulture) + " in");
+            SafeSetFormula(line, "TxtPinY", "0 in");
         }
 
         private static Pt OffsetPoint(Pt point, double ox, double oy)
@@ -341,27 +536,6 @@ namespace Graphviz2Visio.Visio.Rendering
             }
 
             return true;
-        }
-
-        private static void DrawEdgeLabel(dynamic page, EdgeInfo edge, double ox, double oy)
-        {
-            if (string.IsNullOrWhiteSpace(edge.Label))
-                return;
-
-            double cx = ox + edge.LabelX;
-            double cy = oy + edge.LabelY;
-            double w = Math.Max(0.35, 0.16 * edge.Label.Length);
-            double h = 0.22;
-
-            var box = page.DrawRectangle(cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0);
-            box.Text = edge.Label;
-
-            SafeSetFormula(box, "LinePattern", "0");
-            SafeSetFormula(box, "FillPattern", "1");
-            SafeSetFormula(box, "FillForegnd", "RGB(255,255,255)");
-            ApplyTextStyle(box, 8.0);
-
-            ReleaseCom(box);
         }
 
         private static object DrawSimpleLine(dynamic page, Pt p1, Pt p2, string color, bool dashed, bool endArrow)

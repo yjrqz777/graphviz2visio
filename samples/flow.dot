@@ -1,16 +1,86 @@
-digraph flowchart {
-    rankdir = TB;
-    node [shape = box, style = rounded];
-    start [label = "开始", shape = ellipse];
-    input [label = "输入数据"];
-    process [label = "处理数据"];
-    decision [label = "数据有效?", shape = diamond];
-    output [label = "输出结果"];
-    end [label = "结束", shape = ellipse];
-    start -> input;
-    input -> process;
-    process -> decision;
-    decision -> output [label = "是"];
-    decision -> process [label = "否", tailport = w];
-    output -> end;
+digraph DirMotorControlFlow {
+    graph [
+        rankdir=TB,
+        labelloc=t,
+        label="DIR 电机控制流程",
+        fontsize=18,
+        fontname="Microsoft YaHei"
+    ];
+
+    node [
+        shape=box,
+        style="rounded,filled",
+        fillcolor="#F8FAFC",
+        color="#334155",
+        fontname="Microsoft YaHei",
+        fontsize=11
+    ];
+
+    edge [
+        color="#475569",
+        fontname="Microsoft YaHei",
+        fontsize=10
+    ];
+
+    start [label="周期入口\nUserDirMotorControlApp()", fillcolor="#DBEAFE"];
+    select_mode [label="根据模式查 modeTable\n取得步骤表和步骤数"];
+    run_motor [label="RunDirMotor(data, count)", fillcolor="#E0F2FE"];
+    precheck [shape=diamond, label="前置条件通过？\n表有效/模式未切换/未停止", fillcolor="#FEF3C7"];
+    reset_state [label="ResetState()\n清步骤/延时/速度/运行标志", fillcolor="#FEE2E2"];
+    busy [shape=diamond, label="DIR 电机忙？\nGetDirMotorWorkState()==1", fillcolor="#FEF3C7"];
+    wait_busy [label="等待底层动作完成\n步骤1期间持续 bladeStateCheck()"];
+    blade_check [shape=diamond, label="刀片状态正常？\n仅步骤1强校验", fillcolor="#FEF3C7"];
+    blade_stop [label="异常停止\n蜂鸣/清模式/停止电机", fillcolor="#FEE2E2"];
+    first_reset [shape=diamond, label="首次复位完成？\n当前位置为顶部或已复位", fillcolor="#FEF3C7"];
+    start_reset [label="BspDirpMotorSetReset()\n先回顶部", fillcolor="#EDE9FE"];
+
+    subgraph cluster_step {
+        label="单步步骤（当前 u8StepCount）";
+        color="#94A3B8";
+        fontname="Microsoft YaHei";
+        fontsize=13;
+
+        step_started [shape=diamond, label="当前步骤已启动？\nu8StepStarted", fillcolor="#FEF3C7"];
+        start_step [label="StartCurrentStep()\nSetDIRmotorDir(Location, DirSpeed)\nSetDIRmotorRunTime(RunTime)\n加载当前 u16Dely\nu8StepStarted=1", fillcolor="#DCFCE7"];
+        action_done [label="等待当前步骤动作完成\n限位到达或定时结束"];
+        update_speed [label="UpdateMotorSpeed()\n设置当前步骤高压目标转速"];
+        speed_stable [shape=diamond, label="转速稳定？\nWaitForSpeedStable()", fillcolor="#FEF3C7"];
+        delay_count [shape=diamond, label="当前步骤延时完成？\nProcessDelayCount()", fillcolor="#FEF3C7"];
+        finish_step [label="FinishCurrentStep()\n清 u8StepStarted\n步骤号 +1", fillcolor="#DCFCE7"];
     }
+
+    more_steps [shape=diamond, label="还有下一步骤？", fillcolor="#FEF3C7"];
+    stop_done [label="全部完成\nE_STOP / BspDirpMotoSetStop()\n完成标志/蜂鸣", fillcolor="#DBEAFE"];
+
+    bsp_driver [label="底层周期驱动\nBspDirMotorDrivers()", fillcolor="#F1F5F9"];
+    bsp_run [label="DirMotorRun()\n输出 PWM / 判断限位或运行时间", fillcolor="#F1F5F9"];
+    bsp_idle [label="停止 DIR 输出\nu8RunEn=0", fillcolor="#F1F5F9"];
+
+    start -> select_mode -> run_motor -> precheck;
+    precheck -> reset_state [label="否"];
+    precheck -> busy [label="是"];
+    busy -> wait_busy [label="是"];
+    wait_busy -> run_motor [label="下个周期"];
+    busy -> blade_check [label="否"];
+    blade_check -> blade_stop [label="否"];
+    blade_check -> first_reset [label="是"];
+    first_reset -> start_reset [label="否"];
+    start_reset -> run_motor [label="下个周期"];
+    first_reset -> step_started [label="是"];
+
+    step_started -> start_step [label="否"];
+    start_step -> run_motor [label="下个周期"];
+    start_step -> bsp_driver [style=dashed, label="底层执行"];
+    bsp_driver -> bsp_run -> bsp_idle;
+    bsp_idle -> busy [style=dashed, label="变为空闲"];
+
+    step_started -> action_done [label="是"];
+    action_done -> update_speed -> speed_stable;
+    speed_stable -> run_motor [label="否，下个周期"];
+    speed_stable -> delay_count [label="是"];
+    delay_count -> run_motor [label="否，下个周期"];
+    delay_count -> finish_step [label="是"];
+    finish_step -> more_steps;
+    more_steps -> run_motor [label="是"];
+    more_steps -> stop_done [label="否"];
+}

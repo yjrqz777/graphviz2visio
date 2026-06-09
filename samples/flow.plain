@@ -1,14 +1,54 @@
-graph 1 2.6635 5.9375
-node start 0.62426 5.6875 0.8922 0.5 开始 rounded ellipse black lightgrey
-node input 0.62426 4.6736 1.1806 0.5 输入数据 rounded box black lightgrey
-node process 0.62426 3.6597 1.1806 0.5 处理数据 rounded box black lightgrey
-node decision 1.4437 2.4618 2.4395 0.5 "数据有效?" rounded diamond black lightgrey
-node output 1.4437 1.2639 1.1806 0.5 输出结果 rounded box black lightgrey
-node end 1.4437 0.25 0.8922 0.5 结束 rounded ellipse black lightgrey
-edge start input 4 0.62426 5.4349 0.62426 5.3295 0.62426 5.2028 0.62426 5.0839 solid black
-edge input process 4 0.62426 4.421 0.62426 4.3156 0.62426 4.1889 0.62426 4.07 solid black
-edge process decision 4 0.79405 3.4034 0.91325 3.2332 1.0743 3.0032 1.2062 2.8148 solid black
-edge decision process 4 0.17969 2.4618 -0.17466 2.4618 0.094428 2.9323 0.34174 3.2802 否 0.3557 3.0608 solid black
-edge decision output 4 1.4437 2.2055 1.4437 2.0533 1.4437 1.8533 1.4437 1.6781 是 1.5635 1.8628 solid black
-edge output end 4 1.4437 1.0113 1.4437 0.90591 1.4437 0.77919 1.4437 0.66027 solid black
+graph 1 14.203 18.167
+node start 5.3021 11.955 2.1493 0.52778 "周期入口\nUserDirMotorControlApp()" rounded,filled box #334155 #DBEAFE
+node select_mode 5.0243 10.201 1.8368 0.52778 "根据模式查 modeTable\n取得步骤表和步骤数" rounded,filled box #334155 #F8FAFC
+node run_motor 5.0243 8.6076 2.0868 0.5 "RunDirMotor(data, count)" rounded,filled box #334155 #E0F2FE
+node precheck 7.4826 7.0139 4.1319 1.0556 "前置条件通过？\n表有效/模式未切换/未停止" rounded,filled diamond #334155 #FEF3C7
+node reset_state 6.4826 5.2604 2.1285 0.52778 "ResetState()\n清步骤/延时/速度/运行标志" rounded,filled box #334155 #FEE2E2
+node busy 10.108 5.2604 4.6319 1.0556 "DIR 电机忙？\nGetDirMotorWorkState()==1" rounded,filled diamond #334155 #FEF3C7
+node wait_busy 6.5938 3.5069 2.5868 0.52778 "等待底层动作完成\n步骤1期间持续 bladeStateCheck()" rounded,filled box #334155 #F8FAFC
+node blade_check 9.7743 3.5069 2.6319 1.0556 "刀片状态正常？\n仅步骤1强校验" rounded,filled diamond #334155 #FEF3C7
+node blade_stop 9.7743 1.7535 1.7535 0.52778 "异常停止\n蜂鸣/清模式/停止电机" rounded,filled box #334155 #FEE2E2
+node first_reset 1.941 1.7535 3.8819 1.0556 "首次复位完成？\n当前位置为顶部或已复位" rounded,filled diamond #334155 #FEF3C7
+node start_reset 3.1076 0.26389 1.9514 0.52778 "BspDirpMotorSetReset()\n先回顶部" rounded,filled box #334155 #EDE9FE
+node step_started 8.066 16.601 2.9444 1.0556 "当前步骤已启动？\nu8StepStarted" rounded,filled diamond #334155 #FEF3C7
+node start_step 8.0104 14.799 2.8264 1.1528 "StartCurrentStep()\nSetDIRmotorDir(Location, DirSpeed)\nSetDIRmotorRunTime(RunTime)\n加载当前 u16Dely\nu8StepStarted=1" rounded,filled box #334155 #DCFCE7
+node action_done 10.566 14.799 1.7847 0.52778 "等待当前步骤动作完成\n限位到达或定时结束" rounded,filled box #334155 #F8FAFC
+node update_speed 9.8854 13.26 2.0972 0.52778 "UpdateMotorSpeed()\n设置当前步骤高压目标转速" rounded,filled box #334155 #F8FAFC
+node speed_stable 9.2188 11.955 3.5486 1.0556 "转速稳定？\nWaitForSpeedStable()" rounded,filled diamond #334155 #FEF3C7
+node delay_count 9.2188 10.201 3.4236 1.0556 "当前步骤延时完成？\nProcessDelayCount()" rounded,filled diamond #334155 #FEF3C7
+node finish_step 8.1215 8.6076 1.6076 0.73611 "FinishCurrentStep()\n清 u8StepStarted\n步骤号 +1" rounded,filled box #334155 #DCFCE7
+node more_steps 2.1215 10.201 2.4192 0.5 还有下一步骤？ rounded,filled diamond #334155 #FEF3C7
+node stop_done 2.1771 8.6076 2.5139 0.73611 "全部完成\nE_STOP / BspDirpMotoSetStop()\n完成标志/蜂鸣" rounded,filled box #334155 #DBEAFE
+node bsp_driver 12.747 13.26 1.7743 0.52778 "底层周期驱动\nBspDirMotorDrivers()" rounded,filled box #334155 #F1F5F9
+node bsp_run 12.941 11.955 2.5243 0.52778 "DirMotorRun()\n输出 PWM / 判断限位或运行时间" rounded,filled box #334155 #F1F5F9
+node bsp_idle 12.608 10.201 1.191 0.52778 "停止 DIR 输出\nu8RunEn=0" rounded,filled box #334155 #F1F5F9
+edge start select_mode 4 5.2611 11.686 5.2162 11.407 5.1434 10.955 5.0904 10.626 solid #475569
+edge select_mode run_motor 4 5.0243 9.9324 5.0243 9.6846 5.0243 9.3049 5.0243 9.0177 solid #475569
+edge run_motor precheck 4 5.403 8.3525 5.7655 8.1216 6.3216 7.7674 6.7676 7.4833 solid #475569
+edge precheck reset_state 4 7.2199 6.5466 7.0607 6.2719 6.8598 5.9252 6.7079 5.6631 否 7.0803 6.1372 solid #475569
+edge precheck busy 4 8.0522 6.6256 8.4441 6.3679 8.9677 6.0237 9.3883 5.7472 是 8.9416 6.1372 solid #475569
+edge busy wait_busy 4 9.3838 4.8911 8.7589 4.5841 7.8634 4.1444 7.2569 3.8465 是 8.5238 4.3837 solid #475569
+edge busy blade_check 4 10.012 4.752 9.9763 4.5665 9.9351 4.3531 9.8971 4.1566 否 10.019 4.3837 solid #475569
+edge wait_busy run_motor 7 6.1855 3.7741 5.88 3.9883 5.4827 4.3252 5.2882 4.7326 4.735 5.8914 4.8607 7.4719 4.9599 8.1987 下个周期 5.1972 6.1372 solid #475569
+edge blade_check blade_stop 4 9.7743 2.9753 9.7743 2.72 9.7743 2.4165 9.7743 2.1775 否 9.842 2.6302 solid #475569
+edge blade_check first_reset 7 9.0444 3.265 8.7282 3.1703 8.3527 3.063 8.0104 2.9792 6.389 2.5819 4.5003 2.2205 3.2659 1.9978 是 6.9246 2.6302 solid #475569
+edge first_reset start_reset 4 2.2816 1.3128 2.4471 1.1055 2.6443 0.8583 2.8046 0.65752 否 2.7647 0.87674 solid #475569
+edge first_reset step_started 10 1.3811 2.1359 0.98509 2.4454 0.52431 2.9271 0.52431 3.4931 0.52431 14.812 0.52431 14.812 0.52431 14.812 0.52431 16.043 4.3774 16.421 6.5754 16.536 是 0.59201 9.3247 solid #475569
+edge start_reset run_motor 10 3.4896 0.53088 3.8299 0.78996 4.2743 1.2266 4.2743 1.7396 4.2743 7.0278 4.2743 7.0278 4.2743 7.0278 4.2743 7.4722 4.523 7.9241 4.734 8.2274 下个周期 4.5451 4.3837 solid #475569
+edge step_started start_step 4 8.0499 16.074 8.0446 15.906 8.0387 15.716 8.0331 15.536 否 8.1092 15.724 solid #475569
+edge step_started action_done 4 8.5539 16.24 8.9931 15.929 9.6351 15.473 10.075 15.161 是 9.4586 15.724 solid #475569
+edge start_step run_motor 10 6.5922 14.467 5.555 14.153 4.2196 13.557 3.566 12.483 3.238 11.943 3.6763 10.225 3.9826 9.6736 4.1328 9.4031 4.3721 9.1544 4.5835 8.9667 下个周期 3.8368 11.955 solid #475569
+edge start_step bsp_driver 7 9.4289 14.263 9.4704 14.249 9.5115 14.236 9.5521 14.222 10.265 13.987 11.076 13.746 11.703 13.567 底层执行 11.219 13.873 dashed #475569
+edge action_done update_speed 4 10.451 14.529 10.345 14.294 10.187 13.943 10.064 13.672 solid #475569
+edge update_speed speed_stable 4 9.7537 12.994 9.688 12.868 9.6057 12.71 9.5254 12.556 solid #475569
+edge speed_stable run_motor 10 8.2991 11.694 7.7426 11.506 7.0506 11.198 6.5729 10.729 6.2016 10.365 6.3658 10.099 6.066 9.6736 5.884 9.4155 5.6367 9.1627 5.4287 8.9697 否，下个周期 6.9792 10.201 solid #475569
+edge speed_stable delay_count 4 9.2188 11.423 9.2188 11.256 9.2188 11.068 9.2188 10.891 是 9.2865 11.078 solid #475569
+edge delay_count run_motor 4 8.4543 9.9021 7.7078 9.6234 6.5765 9.201 5.8196 8.9184 否，下个周期 7.5278 9.3247 solid #475569
+edge delay_count finish_step 4 8.9189 9.7596 8.7771 9.5571 8.607 9.3144 8.4605 9.1053 是 8.7378 9.3247 solid #475569
+edge finish_step more_steps 7 7.3113 8.8223 6.476 9.0304 5.1364 9.3677 3.9826 9.6736 3.579 9.7806 3.1276 9.9052 2.7704 10.005 solid #475569
+edge more_steps run_motor 7 2.3366 9.9924 2.5783 9.781 2.9893 9.4448 3.3889 9.2257 3.6033 9.1081 3.8453 9.0046 4.0761 8.9179 是 3.4566 9.3247 solid #475569
+edge more_steps stop_done 4 2.13 9.9497 2.1376 9.7347 2.1491 9.4108 2.1588 9.1367 否 2.222 9.3247 solid #475569
+edge bsp_driver bsp_run 4 12.785 12.994 12.812 12.818 12.848 12.58 12.879 12.378 solid #475569
+edge bsp_run bsp_idle 4 12.892 11.686 12.838 11.407 12.751 10.955 12.687 10.626 solid #475569
+edge bsp_idle busy 7 12.49 9.9323 12.308 9.5415 11.946 8.7725 11.622 8.1285 11.226 7.3436 10.747 6.4501 10.435 5.875 变为空闲 11.817 7.8906 dashed #475569
 stop

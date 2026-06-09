@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Graphviz2Visio.Core.Models;
 
@@ -5,7 +6,14 @@ namespace Graphviz2Visio.Core.Utils
 {
     public static class BezierHelper
     {
-        public static List<Pt> SplineToPolyline(IList<Pt> points, int samplesPerSegment = 24)
+        /// <summary>
+        /// 将 Graphviz plain 的 cubic 贝塞尔控制点链（3n+1 个点）转换为折线点序列。
+        /// 整条曲线在全局参数 [0, n] 上均匀采样，输出折线段数恰好为 maxSegments，
+        /// 即返回 maxSegments + 1 个点。
+        /// </summary>
+        /// <param name="points">控制点序列；长度应满足 (count-1) % 3 == 0。</param>
+        /// <param name="maxSegments">整条曲线最多允许的直线段数，默认 3。</param>
+        public static List<Pt> SplineToPolyline(IList<Pt> points, int maxSegments = 3)
         {
             if (points == null || points.Count < 2)
                 return new List<Pt>();
@@ -17,23 +25,30 @@ namespace Graphviz2Visio.Core.Utils
             if ((points.Count - 1) % 3 != 0)
                 return new List<Pt>(points);
 
-            var result = new List<Pt>();
+            if (maxSegments < 1)
+                maxSegments = 1;
 
-            for (int i = 0; i < points.Count - 1; i += 3)
+            int cubicCount = (points.Count - 1) / 3;
+            var result = new List<Pt>(maxSegments + 1);
+
+            for (int i = 0; i <= maxSegments; i++)
             {
-                Pt p0 = points[i];
-                Pt p1 = points[i + 1];
-                Pt p2 = points[i + 2];
-                Pt p3 = points[i + 3];
+                // 将全局采样参数 u 均匀分布在 [0, cubicCount] 区间。
+                double u = (double)i / maxSegments * cubicCount;
 
-                for (int s = 0; s <= samplesPerSegment; s++)
-                {
-                    if (i > 0 && s == 0)
-                        continue;
+                int segIdx = (int)Math.Floor(u);
+                if (segIdx >= cubicCount)
+                    segIdx = cubicCount - 1;
 
-                    double t = (double)s / samplesPerSegment;
-                    result.Add(BezierPoint(p0, p1, p2, p3, t));
-                }
+                double t = u - segIdx;
+                int baseIdx = segIdx * 3;
+
+                result.Add(BezierPoint(
+                    points[baseIdx],
+                    points[baseIdx + 1],
+                    points[baseIdx + 2],
+                    points[baseIdx + 3],
+                    t));
             }
 
             return result;
