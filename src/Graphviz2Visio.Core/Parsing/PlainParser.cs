@@ -67,7 +67,7 @@ namespace Graphviz2Visio.Core.Parsing
                 Cy = ToDouble(GetPart(parts, 3, "0")),
                 W = ToDouble(GetPart(parts, 4, "1")),
                 H = ToDouble(GetPart(parts, 5, "0.5")),
-                Label = GetPart(parts, 6, GetPart(parts, 1)),
+                Label = DecodeGraphvizText(GetPart(parts, 6, GetPart(parts, 1))),
                 Style = GetPart(parts, 7, string.Empty),
                 Shape = GetPart(parts, 8, "box"),
                 Color = GetPart(parts, 9, "black"),
@@ -99,7 +99,7 @@ namespace Graphviz2Visio.Core.Parsing
                 double.TryParse(rest[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double lx) &&
                 double.TryParse(rest[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double ly))
             {
-                edge.Label = rest[0];
+                edge.Label = DecodeGraphvizText(rest[0]);
                 edge.LabelX = lx;
                 edge.LabelY = ly;
                 edge.Style = rest[3];
@@ -116,6 +116,19 @@ namespace Graphviz2Visio.Core.Parsing
             }
 
             return edge;
+        }
+
+        private static string DecodeGraphvizText(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            return text
+                .Replace("\\n", Environment.NewLine)
+                .Replace("\\l", Environment.NewLine)
+                .Replace("\\r", Environment.NewLine)
+                .Replace("\\\"", "\"")
+                .Replace("\\\\", "\\");
         }
 
         private static string StripPort(string token)

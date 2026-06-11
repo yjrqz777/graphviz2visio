@@ -8,7 +8,7 @@ namespace Graphviz2Visio.Core.Utils
         public static List<string> Tokenize(string line)
         {
             var result = new List<string>();
-            var matches = Regex.Matches(line, "\"([^\"]*)\"|\\S+");
+            var matches = Regex.Matches(line, "\"((?:\\\\.|[^\"\\\\])*)\"|\\S+");
 
             foreach (Match m in matches)
             {
