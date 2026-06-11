@@ -46,7 +46,7 @@ jobs:
             "dist\Graphviz2Visio-win-x64-standalone.zip"
           )
 
-          gh release view $tag *> $null
+          cmd /c "gh release view $tag >nul 2>nul"
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $assets --clobber
           }
