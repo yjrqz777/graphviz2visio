@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build and publish release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build standalone exe
+        shell: powershell
+        run: .\scripts\package-win.ps1 -Standalone
+
+      - name: Prepare release assets
+        shell: powershell
+        run: |
+          $dist = "dist"
+          $assetName = "Graphviz2Visio-win-x64-standalone.exe"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item "publish\win-x64-standalone\Graphviz2Visio.Cli.exe" "$dist\$assetName" -Force
+          Compress-Archive -Path "$dist\$assetName" -DestinationPath "$dist\Graphviz2Visio-win-x64-standalone.zip" -Force
+
+      - name: Create or update GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $assets = @(
+            "dist\Graphviz2Visio-win-x64-standalone.exe",
+            "dist\Graphviz2Visio-win-x64-standalone.zip"
+          )
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assets --clobber
+          }
+          else {
+            gh release create $tag $assets --title $tag --generate-notes
+          }

@@ -14,6 +14,9 @@ x64/
 x86/
 build/
 
+## Package output
+publish/
+
 ## NuGet
 *.nupkg
 **/packages/*

@@ -1,13 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 
 namespace Graphviz2Visio.Graphviz
 {
     public static class GraphvizLocator
     {
+        private const string EmbeddedGraphvizResourceName = "Graphviz2Visio.Graphviz.Embedded.GraphvizWin64.zip";
+
         public static string FindDotExe(string startDirectory = null)
         {
             startDirectory = startDirectory ?? AppDomain.CurrentDomain.BaseDirectory;
@@ -23,10 +27,16 @@ namespace Graphviz2Visio.Graphviz
                     return dotExe;
             }
 
+            string embeddedDotExe = TryExtractEmbeddedGraphviz();
+            if (!string.IsNullOrWhiteSpace(embeddedDotExe) && File.Exists(embeddedDotExe))
+                return embeddedDotExe;
+
             throw new FileNotFoundException(
-                "未找到 dot.exe。请确认 tools 目录下存在 Graphviz，并且包含 bin\\dot.exe。\r\n" +
-                "已搜索目录：\r\n" +
-                string.Join("\r\n", searchedToolsDirs.Distinct()));
+                "dot.exe was not found. Ensure a tools directory contains Graphviz with bin\\dot.exe, " +
+                "or build with the embedded Graphviz package." + Environment.NewLine +
+                "Searched tools directories:" + Environment.NewLine +
+                string.Join(Environment.NewLine, searchedToolsDirs.Distinct()) + Environment.NewLine +
+                "Embedded Graphviz resource: " + EmbeddedGraphvizResourceName);
         }
 
         private static IEnumerable<string> EnumerateCandidateToolsDirectories(string startDirectory)
@@ -56,7 +66,6 @@ namespace Graphviz2Visio.Graphviz
             if (!Directory.Exists(toolsDir))
                 return null;
 
-            // 先检查 tools 根目录下是否直接有 dot.exe
             string directDot = Path.Combine(toolsDir, "dot.exe");
             if (File.Exists(directDot))
                 return directDot;
@@ -65,9 +74,8 @@ namespace Graphviz2Visio.Graphviz
             if (File.Exists(directBinDot))
                 return directBinDot;
 
-            // 再检查 Graphviz-* 子目录
             var graphvizDirs = Directory.GetDirectories(toolsDir)
-                .Where(d => Path.GetFileName(d).StartsWith("Graphviz", StringComparison.OrdinalIgnoreCase))
+                .Where(d => Path.GetFileName(d).IndexOf("Graphviz", StringComparison.OrdinalIgnoreCase) >= 0)
                 .Select(d => new CandidateDir
                 {
                     FullPath = d,
@@ -91,13 +99,48 @@ namespace Graphviz2Visio.Graphviz
                     return rootDot;
             }
 
-            // 最后兜底：递归搜一遍
             foreach (var dir in graphvizDirs)
             {
                 string found = Directory.GetFiles(dir.FullPath, "dot.exe", SearchOption.AllDirectories).FirstOrDefault();
                 if (!string.IsNullOrWhiteSpace(found))
                     return found;
             }
+
+            return Directory.GetFiles(toolsDir, "dot.exe", SearchOption.AllDirectories).FirstOrDefault();
+        }
+
+        private static string TryExtractEmbeddedGraphviz()
+        {
+            Stream resourceStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(EmbeddedGraphvizResourceName);
+            if (resourceStream == null)
+                return null;
+
+            string cacheBase = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(cacheBase))
+                cacheBase = Path.GetTempPath();
+
+            string cacheRoot = Path.Combine(cacheBase, "Graphviz2Visio", "embedded-graphviz-win64");
+            string toolsDir = Path.Combine(cacheRoot, "tools");
+
+            string cachedDotExe = FindDotExeInToolsDirectory(toolsDir);
+            if (!string.IsNullOrWhiteSpace(cachedDotExe) && File.Exists(cachedDotExe))
+                return cachedDotExe;
+
+            Directory.CreateDirectory(cacheRoot);
+
+            string zipPath = Path.Combine(cacheRoot, "GraphvizWin64.zip");
+            using (resourceStream)
+            using (var fileStream = File.Create(zipPath))
+            {
+                resourceStream.CopyTo(fileStream);
+            }
+
+            Directory.CreateDirectory(toolsDir);
+            ZipFile.ExtractToDirectory(zipPath, toolsDir, true);
+
+            string extractedDotExe = FindDotExeInToolsDirectory(toolsDir);
+            if (!string.IsNullOrWhiteSpace(extractedDotExe) && File.Exists(extractedDotExe))
+                return extractedDotExe;
 
             return null;
         }
@@ -128,12 +171,10 @@ namespace Graphviz2Visio.Graphviz
                 if (name.Contains("32") || name.Contains("86")) return 0;
                 return 1;
             }
-            else
-            {
-                if (name.Contains("32") || name.Contains("86")) return 2;
-                if (name.Contains("64")) return 0;
-                return 1;
-            }
+
+            if (name.Contains("32") || name.Contains("86")) return 2;
+            if (name.Contains("64")) return 0;
+            return 1;
         }
 
         private class CandidateDir

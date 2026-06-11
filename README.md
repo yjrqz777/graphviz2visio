@@ -66,6 +66,96 @@ dotnet run --project src/Graphviz2Visio.Cli -- dot2plain samples\flow.dot sample
 dotnet run --project src/Graphviz2Visio.Cli -- plain2visio samples\flow.plain output\flow.vsdx --visible
 ```
 
+## 打包 exe
+
+项目提供了 Windows 打包脚本，会执行 `dotnet publish`，并把 `tools/Graphviz-*` 复制到发布目录，保证打包后的 exe 能自动找到 `dot.exe`。
+
+默认打包为依赖 .NET 8 Runtime 的版本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-win.ps1
+```
+
+输出目录：
+
+```
+publish\win-x64-framework\
+```
+
+入口文件：
+
+```
+publish\win-x64-framework\Graphviz2Visio.Cli.exe
+```
+
+如果希望目标机器不需要单独安装 .NET Runtime，可以打包自包含版本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-win.ps1 -SelfContained
+```
+
+输出目录：
+
+```
+publish\win-x64-selfcontained\
+```
+
+如果希望只分发一个独立 exe，并把 Graphviz 也嵌入 exe：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-win.ps1 -Standalone
+```
+
+输出文件：
+
+```
+publish\win-x64-standalone\Graphviz2Visio.Cli.exe
+```
+
+该模式会把 Graphviz zip 嵌入程序。第一次运行 `dot2plain` 或 `where-dot` 时，程序会自动把 Graphviz 解压到当前用户的本地缓存目录，然后调用缓存中的 `dot.exe`。
+
+单文件 exe 使用示例：
+
+```powershell
+# 验证内嵌 Graphviz 是否可用
+.\Graphviz2Visio.Cli.exe where-dot
+
+# DOT → Plain
+.\Graphviz2Visio.Cli.exe dot2plain samples\flow.dot output\flow.plain
+
+# Plain → Visio
+.\Graphviz2Visio.Cli.exe plain2visio output\flow.plain output\flow.vsdx --visible
+```
+
+如果把 exe 放到其他目录，命令中的输入输出路径也按实际位置填写即可：
+
+```powershell
+.\Graphviz2Visio.Cli.exe dot2plain C:\work\flow.dot C:\work\flow.plain
+.\Graphviz2Visio.Cli.exe plain2visio C:\work\flow.plain C:\work\flow.vsdx
+```
+
+也可以指定运行时和输出目录：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\package-win.ps1 -Runtime win-x64 -OutputDir publish\release
+```
+
+普通模式和自包含模式需要整体分发发布目录，尤其要保留其中的 `tools` 目录。`-Standalone` 模式只需要分发生成的 exe。运行 `plain2visio` 的电脑仍然需要安装 Microsoft Visio。
+
+### 自动发布 GitHub Release
+
+仓库内置了 GitHub Actions workflow：`.github/workflows/release.yml`。推送 `v*` tag 时会自动打包单文件 exe，并上传到 GitHub Release。
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+Release 附件会包含：
+
+- `Graphviz2Visio-win-x64-standalone.exe`
+- `Graphviz2Visio-win-x64-standalone.zip`
+
 ## 命令参考
 
 ```

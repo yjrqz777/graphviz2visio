@@ -9,4 +9,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Graphviz2Visio.Core\Graphviz2Visio.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup Condition="'$(EmbedGraphviz)' == 'true'">
+    <EmbeddedResource Include="..\..\tools\windows_10_cmake_Release_Graphviz-15.0.0-win64.zip">
+      <LogicalName>Graphviz2Visio.Graphviz.Embedded.GraphvizWin64.zip</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>
