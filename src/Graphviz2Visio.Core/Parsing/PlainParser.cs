@@ -16,9 +16,8 @@ namespace Graphviz2Visio.Core.Parsing
                 throw new FileNotFoundException("找不到 plain 文件", path);
 
             var graph = new GraphInfo();
-            var lines = File.ReadAllLines(path);
 
-            foreach (var raw in lines)
+            foreach (var raw in File.ReadLines(path))
             {
                 var line = raw.Trim();
                 if (string.IsNullOrWhiteSpace(line) || line == "stop")
