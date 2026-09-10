@@ -13,10 +13,61 @@ namespace Graphviz2Visio.Visio.Rendering
     {
         public static void RenderPlainToVisio(string plainPath, string outputVsdxPath, bool visible = false)
         {
-            if (!File.Exists(plainPath))
-                throw new FileNotFoundException("Plain file not found.", plainPath);
+            RenderPlainFilesToVisio(new[] { plainPath }, outputVsdxPath, visible);
+        }
 
-            var graph = PlainParser.Parse(plainPath);
+        public static void RenderPlainFilesToVisio(IEnumerable<string> plainPaths, string outputVsdxPath, bool visible = false)
+        {
+            RenderPlainFilesToVisio(plainPaths, outputVsdxPath, visible, null);
+        }
+
+        public static void RenderPlainFilesToVisio(
+            IEnumerable<string> plainPaths,
+            string outputVsdxPath,
+            bool visible,
+            IEnumerable<string> requestedPageNames)
+        {
+            if (plainPaths == null)
+                throw new ArgumentNullException(nameof(plainPaths));
+
+            var plainFilePaths = new List<string>();
+            foreach (string plainPath in plainPaths)
+            {
+                if (string.IsNullOrWhiteSpace(plainPath))
+                    throw new ArgumentException("Plain file path cannot be empty.", nameof(plainPaths));
+                if (!File.Exists(plainPath))
+                    throw new FileNotFoundException("Plain file not found.", plainPath);
+
+                plainFilePaths.Add(plainPath);
+            }
+
+            if (plainFilePaths.Count == 0)
+                throw new ArgumentException("At least one plain file is required.", nameof(plainPaths));
+
+            var explicitPageNames = new List<string>();
+            if (requestedPageNames != null)
+            {
+                foreach (string pageName in requestedPageNames)
+                {
+                    if (string.IsNullOrWhiteSpace(pageName))
+                        throw new ArgumentException("Page name cannot be empty.", nameof(requestedPageNames));
+
+                    explicitPageNames.Add(pageName.Trim());
+                }
+
+                if (explicitPageNames.Count != plainFilePaths.Count)
+                    throw new ArgumentException("One page name is required for every plain file.", nameof(requestedPageNames));
+            }
+
+            var pageNames = new List<string>();
+            for (int index = 0; index < plainFilePaths.Count; index++)
+            {
+                string plainPath = plainFilePaths[index];
+                pageNames.Add(requestedPageNames == null
+                    ? Path.GetFileNameWithoutExtension(plainPath)
+                    : explicitPageNames[index]);
+            }
+            ValidatePageNames(pageNames);
 
             string outDir = Path.GetDirectoryName(Path.GetFullPath(outputVsdxPath));
             if (!string.IsNullOrWhiteSpace(outDir) && !Directory.Exists(outDir))
@@ -24,9 +75,9 @@ namespace Graphviz2Visio.Visio.Rendering
 
             object app = null;
             object doc = null;
-            object page = null;
             object flowchartStencil = null;
             object decisionMaster = null;
+            object pages = null;
 
             try
             {
@@ -41,67 +92,119 @@ namespace Graphviz2Visio.Visio.Rendering
                 dynamic ddoc = dapp.Documents.Add("");
                 doc = ddoc;
 
-                dynamic dpage = dapp.ActivePage;
-                page = dpage;
+                dynamic dpages = ddoc.Pages;
+                pages = dpages;
+                dynamic dDecisionMaster = null;
 
-                // Cast to object so tuple field names survive dynamic binding.
-                var offset = PreparePage((object)dpage, graph, 1.0);
-                double offsetX = offset.offsetX;
-                double offsetY = offset.offsetY;
-
-                // 如果包含菱形（判定）节点，提前打开 Visio 自带的"基本流程图形状"模具，
-                // 以便用标准 Decision master 直接落到页面，而不是用 4 条直线拼。
-                bool hasDiamond = false;
-                foreach (var n in graph.Nodes)
+                for (int index = 0; index < plainFilePaths.Count; index++)
                 {
-                    if (string.Equals(n.Shape, "diamond", StringComparison.OrdinalIgnoreCase))
+                    GraphInfo graph = PlainParser.Parse(plainFilePaths[index]);
+                    if (dDecisionMaster == null && ContainsDiamond(graph))
                     {
-                        hasDiamond = true;
-                        break;
+                        dynamic dStencil = OpenFlowchartStencil(dapp);
+                        flowchartStencil = dStencil;
+                        dDecisionMaster = FindDecisionMaster(dStencil);
+                        decisionMaster = dDecisionMaster;
+                    }
+
+                    object page = null;
+                    try
+                    {
+                        dynamic dpage = index == 0 ? dapp.ActivePage : dpages.Add();
+                        page = dpage;
+                        SetPageName(dpage, pageNames[index], index + 1);
+                        RenderGraphToPage(dpage, graph, dDecisionMaster);
+                    }
+                    finally
+                    {
+                        ReleaseCom(page);
                     }
                 }
 
-                dynamic dDecisionMaster = null;
-                if (hasDiamond)
-                {
-                    dynamic dStencil = OpenFlowchartStencil(dapp);
-                    flowchartStencil = dStencil;
-                    dDecisionMaster = FindDecisionMaster(dStencil);
-                    decisionMaster = dDecisionMaster;
-                }
-
-                var nodesById = new Dictionary<string, NodeInfo>(StringComparer.Ordinal);
-                foreach (var node in graph.Nodes)
-                    nodesById[node.Id] = node;
-
-                foreach (var edge in graph.Edges)
-                    DrawEdge(dpage, edge, nodesById, offsetX, offsetY);
-
-                foreach (var node in graph.Nodes)
-                    DrawNode(dpage, node, offsetX, offsetY, dDecisionMaster);
-
                 ddoc.SaveAs(Path.GetFullPath(outputVsdxPath));
-                ddoc.Close();
-                dapp.Quit();
             }
             finally
             {
                 ReleaseCom(decisionMaster);
+                ReleaseCom(pages);
                 if (flowchartStencil != null)
                 {
                     try { ((dynamic)flowchartStencil).Close(); } catch { }
                     ReleaseCom(flowchartStencil);
                 }
-                ReleaseCom(page);
+                if (doc != null)
+                {
+                    try { ((dynamic)doc).Close(); } catch { }
+                }
+                if (app != null)
+                {
+                    try { ((dynamic)app).Quit(); } catch { }
+                }
                 ReleaseCom(doc);
                 ReleaseCom(app);
             }
         }
 
-        /// <summary>
-        /// 尝试打开 Visio 内置的"基本流程图形状"模具，失败返回 null。
-        /// 兼容多语言/多版本：优先 Application.GetBuiltInStencilFile，再尝试常见文件名。
-        /// </summary>
+        private static void ValidatePageNames(IEnumerable<string> pageNames)
+        {
+            var uniqueNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string pageName in pageNames)
+            {
+                if (string.IsNullOrWhiteSpace(pageName))
+                    throw new ArgumentException("Page name cannot be empty.", nameof(pageNames));
+                if (pageName.IndexOfAny(new[] { '\\', '/', ':', '*', '?', '"', '<', '>', '|' }) >= 0)
+                    throw new ArgumentException("Page name contains an invalid character: " + pageName, nameof(pageNames));
+                if (!uniqueNames.Add(pageName))
+                    throw new ArgumentException("Page names must be unique: " + pageName, nameof(pageNames));
+            }
+        }
+
+        private static bool ContainsDiamond(GraphInfo graph)
+        {
+            foreach (NodeInfo node in graph.Nodes)
+            {
+                if (string.Equals(node.Shape, "diamond", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static void SetPageName(dynamic page, string suggestedName, int pageNumber)
+        {
+            string pageName = string.IsNullOrWhiteSpace(suggestedName)
+                ? "Flow " + pageNumber.ToString(CultureInfo.InvariantCulture)
+                : suggestedName;
+
+            try
+            {
+                page.Name = pageName;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Unable to set Visio page " + pageNumber.ToString(CultureInfo.InvariantCulture) +
+                    " name to '" + pageName + "'.",
+                    ex);
+            }
+        }
+
+        private static void RenderGraphToPage(dynamic page, GraphInfo graph, dynamic decisionMaster)
+        {
+            var nodesById = new Dictionary<string, NodeInfo>(StringComparer.Ordinal);
+            foreach (var node in graph.Nodes)
+                nodesById[node.Id] = node;
+
+            var routesByEdge = CreateRoutes(graph.Edges, nodesById);
+            var offset = PreparePage((object)page, graph, routesByEdge, 1.0);
+            double offsetX = offset.offsetX;
+            double offsetY = offset.offsetY;
+
+            foreach (var edge in graph.Edges)
+                DrawEdge(page, edge, nodesById, routesByEdge[edge], offsetX, offsetY);
+            foreach (var node in graph.Nodes)
+                DrawNode(page, node, offsetX, offsetY, decisionMaster);
+        }
         private static dynamic OpenFlowchartStencil(dynamic app)
         {
             var candidates = new List<string>();
@@ -160,7 +263,11 @@ namespace Graphviz2Visio.Visio.Rendering
             return null;
         }
 
-        private static (double offsetX, double offsetY) PreparePage(object pageObj, GraphInfo graph, double margin)
+        private static (double offsetX, double offsetY) PreparePage(
+            object pageObj,
+            GraphInfo graph,
+            IDictionary<EdgeInfo, List<Pt>> routesByEdge,
+            double margin)
         {
             dynamic page = pageObj;
 
@@ -179,7 +286,11 @@ namespace Graphviz2Visio.Visio.Rendering
 
             foreach (var e in graph.Edges)
             {
-                foreach (var p in e.Points)
+                List<Pt> route;
+                if (!routesByEdge.TryGetValue(e, out route))
+                    continue;
+
+                foreach (var p in route)
                 {
                     minX = Math.Min(minX, p.X);
                     minY = Math.Min(minY, p.Y);
@@ -208,8 +319,26 @@ namespace Graphviz2Visio.Visio.Rendering
             double pageW = Math.Max(8.27, contentW + margin * 2);
             double pageH = Math.Max(11.69, contentH + margin * 2);
 
-            page.PageSheet.CellsU["PageWidth"].ResultIU = pageW;
-            page.PageSheet.CellsU["PageHeight"].ResultIU = pageH;
+            object pageSheet = null;
+            object pageWidthCell = null;
+            object pageHeightCell = null;
+            try
+            {
+                dynamic dPageSheet = page.PageSheet;
+                pageSheet = dPageSheet;
+                dynamic dPageWidthCell = dPageSheet.CellsU["PageWidth"];
+                dynamic dPageHeightCell = dPageSheet.CellsU["PageHeight"];
+                pageWidthCell = dPageWidthCell;
+                pageHeightCell = dPageHeightCell;
+                dPageWidthCell.ResultIU = pageW;
+                dPageHeightCell.ResultIU = pageH;
+            }
+            finally
+            {
+                ReleaseCom(pageHeightCell);
+                ReleaseCom(pageWidthCell);
+                ReleaseCom(pageSheet);
+            }
 
             double offsetX = (pageW - contentW) / 2.0 - minX;
             double offsetY = (pageH - contentH) / 2.0 - minY;
@@ -221,14 +350,13 @@ namespace Graphviz2Visio.Visio.Rendering
         {
             string shapeType = (node.Shape ?? "box").ToLowerInvariant();
 
-            if (shapeType == "ellipse")
-                DrawEllipseNode(page, node, ox, oy);
+            if (shapeType == "ellipse" || shapeType == "oval")
+                DrawTerminatorNode(page, node, ox, oy);
             else if (shapeType == "diamond")
                 DrawDiamondNode(page, node, ox, oy, decisionMaster);
             else
                 DrawBoxNode(page, node, ox, oy);
         }
-
         private static void DrawBoxNode(dynamic page, NodeInfo node, double ox, double oy)
         {
             double cx = ox + node.Cx;
@@ -251,25 +379,24 @@ namespace Graphviz2Visio.Visio.Rendering
             ReleaseCom(shape);
         }
 
-        private static void DrawEllipseNode(dynamic page, NodeInfo node, double ox, double oy)
+        private static void DrawTerminatorNode(dynamic page, NodeInfo node, double ox, double oy)
         {
             double cx = ox + node.Cx;
             double cy = oy + node.Cy;
 
-            var shape = page.DrawOval(
+            var shape = page.DrawRectangle(
                 cx - node.W / 2.0,
                 cy - node.H / 2.0,
                 cx + node.W / 2.0,
                 cy + node.H / 2.0);
 
             shape.Text = node.Label ?? node.Id;
-
-            ApplyFillAndLine(shape, node.Color, node.FillColor);
+            ApplyFillAndLine(shape, "black", "#D9D9D9");
             ApplyTextStyle(shape, 10.0);
+            SafeSetFormula(shape, "Rounding", "0.18 in");
 
             ReleaseCom(shape);
         }
-
         private static void DrawDiamondNode(dynamic page, NodeInfo node, double ox, double oy, dynamic decisionMaster)
         {
             double cx = ox + node.Cx;
@@ -344,61 +471,176 @@ namespace Graphviz2Visio.Visio.Rendering
             ReleaseCom(l4);
         }
 
-        private static void DrawEdge(dynamic page, EdgeInfo edge, IDictionary<string, NodeInfo> nodesById, double ox, double oy)
+        private static void DrawEdge(
+            dynamic page,
+            EdgeInfo edge,
+            IDictionary<string, NodeInfo> nodesById,
+            List<Pt> route,
+            double ox,
+            double oy)
         {
-            var rawPts = edge.Points;
-            if (rawPts == null || rawPts.Count < 2)
+            NodeInfo sourceNode;
+            nodesById.TryGetValue(edge.From ?? string.Empty, out sourceNode);
+            if (route.Count < 2)
                 return;
 
-            bool isLine = IsLineSegment(rawPts);
-            NodeInfo fromNode;
-            NodeInfo toNode;
-            nodesById.TryGetValue(edge.From ?? string.Empty, out fromNode);
-            nodesById.TryGetValue(edge.To ?? string.Empty, out toNode);
-
             bool dashed = string.Equals(edge.Style, "dashed", StringComparison.OrdinalIgnoreCase);
-            bool hasLabel = !string.IsNullOrWhiteSpace(edge.Label);
+            string displayLabel = GetEdgeDisplayLabel(edge, sourceNode, route);
+            bool hasLabel = !string.IsNullOrWhiteSpace(displayLabel);
+            bool isDecisionBranch = IsDecisionShape(sourceNode) && hasLabel;
+            int labelSegmentIndex = hasLabel && !isDecisionBranch
+                ? FindNearestSegmentIndex(route, edge.LabelX, edge.LabelY)
+                : -1;
 
-            // 统一成"折线点序列 pts"：直线短路为 2 点，曲线最多 4 点（3 段）。
-            List<Pt> pts;
-            if (isLine)
+            for (int index = 0; index < route.Count - 1; index++)
             {
-                pts = new List<Pt>
-                {
-                    AttachToNodeBoundary(fromNode, rawPts[0], rawPts[rawPts.Count - 1]),
-                    AttachToNodeBoundary(toNode, rawPts[rawPts.Count - 1], rawPts[0])
-                };
-            }
-            else
-            {
-                pts = BezierHelper.SplineToPolyline(rawPts, 3);
-                if (pts.Count < 2)
-                    return;
-                pts[0] = AttachToNodeBoundary(fromNode, pts[0], pts[1]);
-                pts[pts.Count - 1] = AttachToNodeBoundary(toNode, pts[pts.Count - 1], pts[pts.Count - 2]);
-            }
+                Pt startPoint = OffsetPoint(route[index], ox, oy);
+                Pt endPoint = OffsetPoint(route[index + 1], ox, oy);
+                bool endArrow = index == route.Count - 2;
 
-            // 让 label 直接作为某一段线条 1D Shape 的 .Text，挑选离 graphviz 给定
-            // label 坐标最近的那一段承载（graphviz 与 pts 处于同一坐标系，未加 ox/oy）。
-            int labelSegIdx = hasLabel ? FindNearestSegmentIndex(pts, edge.LabelX, edge.LabelY) : -1;
-
-            for (int i = 0; i < pts.Count - 1; i++)
-            {
-                Pt p1 = OffsetPoint(pts[i], ox, oy);
-                Pt p2 = OffsetPoint(pts[i + 1], ox, oy);
-                bool endArrow = (i == pts.Count - 2);
-
-                dynamic line = DrawSimpleLine(page, p1, p2, edge.Color, dashed, endArrow);
+                dynamic line = DrawSimpleLine(page, startPoint, endPoint, "black", dashed, endArrow);
                 try
                 {
-                    if (i == labelSegIdx)
-                        AttachLabelToSegment(line, p1, p2, ox + edge.LabelX, oy + edge.LabelY, edge.Label);
+                    if (index == labelSegmentIndex)
+                    {
+                        AttachLabelToSegment(
+                            line,
+                            startPoint,
+                            endPoint,
+                            ox + edge.LabelX,
+                            oy + edge.LabelY,
+                            displayLabel);
+                    }
                 }
                 finally
                 {
                     ReleaseCom(line);
                 }
             }
+            if (isDecisionBranch)
+                DrawDecisionBranchLabel(page, route, ox, oy, displayLabel);
+        }
+
+        private static string GetEdgeDisplayLabel(EdgeInfo edge, NodeInfo sourceNode, IList<Pt> route)
+        {
+            if (!string.IsNullOrWhiteSpace(edge.Label))
+                return edge.Label.Trim();
+
+            return string.Empty;
+        }
+
+        private static void DrawDecisionBranchLabel(dynamic page, IList<Pt> route, double ox, double oy, string label)
+        {
+            Pt sourcePort = OffsetPoint(route[0], ox, oy);
+            Pt nextPoint = OffsetPoint(route[1], ox, oy);
+            double dx = nextPoint.X - sourcePort.X;
+            double dy = nextPoint.Y - sourcePort.Y;
+            double labelX;
+            double labelY;
+
+            if (Math.Abs(dx) >= Math.Abs(dy))
+            {
+                labelX = sourcePort.X + (dx >= 0 ? 0.24 : -0.24);
+                labelY = sourcePort.Y + 0.14;
+            }
+            else
+            {
+                labelX = sourcePort.X + 0.14;
+                labelY = sourcePort.Y + (dy >= 0 ? 0.24 : -0.24);
+            }
+
+            dynamic labelShape = page.DrawRectangle(labelX - 0.11, labelY - 0.09, labelX + 0.11, labelY + 0.09);
+            try
+            {
+                labelShape.Text = label;
+                SafeSetFormula(labelShape, "LinePattern", "0");
+                SafeSetFormula(labelShape, "FillPattern", "0");
+                ApplyTextStyle(labelShape, 8.0);
+            }
+            finally
+            {
+                ReleaseCom(labelShape);
+            }
+        }
+        private static Dictionary<EdgeInfo, List<Pt>> CreateRoutes(
+            IEnumerable<EdgeInfo> edges,
+            IDictionary<string, NodeInfo> nodesById)
+        {
+            var routesByEdge = new Dictionary<EdgeInfo, List<Pt>>();
+            foreach (EdgeInfo edge in edges)
+            {
+                NodeInfo sourceNode;
+                NodeInfo targetNode;
+                nodesById.TryGetValue(edge.From ?? string.Empty, out sourceNode);
+                nodesById.TryGetValue(edge.To ?? string.Empty, out targetNode);
+                routesByEdge[edge] = CreateRoute(edge, sourceNode, targetNode);
+            }
+
+            return routesByEdge;
+        }
+
+        private static List<Pt> CreateRoute(EdgeInfo edge, NodeInfo sourceNode, NodeInfo targetNode)
+        {
+            var route = new List<Pt>();
+            IList<Pt> routePoints = IsOrthogonalPointChain(edge.Points)
+                ? edge.Points
+                : BezierHelper.SplineToPolyline(edge.Points, Math.Max(6, edge.Points.Count));
+            foreach (Pt point in routePoints)
+                AddRoutePoint(route, point);
+
+            if (route.Count >= 2)
+            {
+                route[0] = AttachToNodeBoundary(sourceNode, route[0], route[1]);
+                route[route.Count - 1] = AttachToNodeBoundary(
+                    targetNode,
+                    route[route.Count - 1],
+                    route[route.Count - 2]);
+                return route;
+            }
+
+            if (sourceNode == null || targetNode == null)
+                return route;
+
+            Pt sourcePort = AttachToNodeBoundary(sourceNode, new Pt(sourceNode.Cx, sourceNode.Cy), new Pt(targetNode.Cx, targetNode.Cy));
+            Pt targetPort = AttachToNodeBoundary(targetNode, new Pt(targetNode.Cx, targetNode.Cy), new Pt(sourceNode.Cx, sourceNode.Cy));
+            AddRoutePoint(route, sourcePort);
+            AddRoutePoint(route, targetPort);
+            return route;
+        }
+
+        private static bool IsOrthogonalPointChain(IList<Pt> points)
+        {
+            if (points == null || points.Count < 2)
+                return false;
+
+            for (int index = 0; index < points.Count - 1; index++)
+            {
+                bool horizontal = Math.Abs(points[index].Y - points[index + 1].Y) < 0.001;
+                bool vertical = Math.Abs(points[index].X - points[index + 1].X) < 0.001;
+                if (!horizontal && !vertical)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static bool IsDecisionShape(NodeInfo node)
+        {
+            return node != null && string.Equals(node.Shape, "diamond", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void AddRoutePoint(ICollection<Pt> route, Pt point)
+        {
+            bool hasLastPoint = false;
+            Pt lastPoint = default(Pt);
+            foreach (Pt existingPoint in route)
+            {
+                lastPoint = existingPoint;
+                hasLastPoint = true;
+            }
+
+            if (!hasLastPoint || Math.Abs(lastPoint.X - point.X) > 0.001 || Math.Abs(lastPoint.Y - point.Y) > 0.001)
+                route.Add(point);
         }
 
         /// <summary>
@@ -504,46 +746,13 @@ namespace Graphviz2Visio.Visio.Rendering
             return Math.Min(scaleX, scaleY);
         }
 
-        /// <summary>
-        /// Detects whether all points represent one straight segment.
-        /// </summary>
-        private static bool IsLineSegment(IList<Pt> points, double tolerance = 0.01)
-        {
-            if (points == null || points.Count < 3)
-                return true;
-
-            // Use the first and last points as the target line.
-            Pt p1 = points[0];
-            Pt pn = points[points.Count - 1];
-
-            double dx = pn.X - p1.X;
-            double dy = pn.Y - p1.Y;
-            double lineLen = Math.Sqrt(dx * dx + dy * dy);
-
-            if (lineLen < tolerance)
-                return true;
-
-            // 濠碘槅鍋€閸嬫捇鏌＄仦璇插姕濠⒀冪Ч瀵灚寰勬径搴″箑闂傚倸鍊搁顓㈠磻閿濆鍙婃い鏍ㄧ閸庡﹪鏌涢敂鍝勫缂佺粯鐗犲鍫曟晬閸曨剛鍑界紓浣瑰劤閵囨绮?
-            for (int i = 1; i < points.Count - 1; i++)
-            {
-                Pt p = points[i];
-
-                // Perpendicular distance from the point to the target line.
-                double dist = Math.Abs((p.Y - p1.Y) * dx - (p.X - p1.X) * dy) / lineLen;
-
-                if (dist > tolerance)
-                    return false;
-            }
-
-            return true;
-        }
 
         private static object DrawSimpleLine(dynamic page, Pt p1, Pt p2, string color, bool dashed, bool endArrow)
         {
             var line = page.DrawLine(p1.X, p1.Y, p2.X, p2.Y);
 
-            SafeSetFormula(line, "LineColor", ColorHelper.ToVisioColorFormula(color, "black"));
-            SafeSetFormula(line, "LineWeight", "0.014 in");
+            SafeSetFormula(line, "LineColor", ColorHelper.ToVisioColorFormula("black", "black"));
+            SafeSetFormula(line, "LineWeight", "0.018 in");
 
             if (dashed)
                 SafeSetFormula(line, "LinePattern", "2");
@@ -556,6 +765,8 @@ namespace Graphviz2Visio.Visio.Rendering
 
         private static void ApplyTextStyle(dynamic shape, double fontSizePt)
         {
+            SafeSetFormula(shape, "Char.Font", "FONT(\"SimSun\")");
+            SafeSetFormula(shape, "Char.Color", "RGB(0,0,0)");
             SafeSetFormula(shape, "Char.Size", fontSizePt.ToString(CultureInfo.InvariantCulture) + " pt");
             SafeSetFormula(shape, "Para.HorzAlign", "1");
             SafeSetFormula(shape, "VerticalAlign", "1");
@@ -563,20 +774,27 @@ namespace Graphviz2Visio.Visio.Rendering
 
         private static void ApplyFillAndLine(dynamic shape, string lineColor, string fillColor)
         {
-            SafeSetFormula(shape, "LineColor", ColorHelper.ToVisioColorFormula(lineColor, "black"));
+            SafeSetFormula(shape, "LineColor", ColorHelper.ToVisioColorFormula("black", "black"));
             SafeSetFormula(shape, "FillPattern", "1");
-            SafeSetFormula(shape, "FillForegnd", ColorHelper.ToVisioColorFormula(fillColor, "white"));
-            SafeSetFormula(shape, "LineWeight", "0.014 in");
+            SafeSetFormula(shape, "FillForegnd", ColorHelper.ToVisioColorFormula("#D9D9D9", "#D9D9D9"));
+            SafeSetFormula(shape, "LineWeight", "0.018 in");
         }
 
         private static void SafeSetFormula(dynamic shape, string cellName, string formula)
         {
+            object cell = null;
             try
             {
-                shape.CellsU[cellName].FormulaU = formula;
+                dynamic dcell = shape.CellsU[cellName];
+                cell = dcell;
+                dcell.FormulaU = formula;
             }
             catch
             {
+            }
+            finally
+            {
+                ReleaseCom(cell);
             }
         }
 
