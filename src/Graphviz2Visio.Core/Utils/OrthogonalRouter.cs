@@ -232,10 +232,16 @@ namespace Graphviz2Visio.Core.Utils
                 minY = Math.Min(minY, rect.Bottom);
                 maxY = Math.Max(maxY, rect.Top);
             }
-            xs.Add(minX - OuterLane);
-            xs.Add(maxX + OuterLane);
-            ys.Add(minY - OuterLane);
-            ys.Add(maxY + OuterLane);
+            int outerLaneCount = Math.Min(6, existing.Count + 1);
+            for (int lane = 1; lane <= outerLaneCount; lane++)
+            {
+                xs.Add(minX - OuterLane * lane);
+                xs.Add(maxX + OuterLane * lane);
+                ys.Add(minY - OuterLane * lane);
+                ys.Add(maxY + OuterLane * lane);
+            }
+            AddMidpoints(xs);
+            AddMidpoints(ys);
             xs = UniqueSorted(xs);
             ys = UniqueSorted(ys);
 
@@ -454,6 +460,16 @@ namespace Graphviz2Visio.Core.Utils
                     result.Add(value);
             }
             return result;
+        }
+
+        private static void AddMidpoints(List<double> values)
+        {
+            List<double> sorted = UniqueSorted(new List<double>(values));
+            for (int index = 0; index + 1 < sorted.Count; index++)
+            {
+                if (sorted[index + 1] - sorted[index] >= Clearance * 2.0)
+                    values.Add((sorted[index] + sorted[index + 1]) / 2.0);
+            }
         }
 
         private static int NearestIndex(IList<double> values, double target)
