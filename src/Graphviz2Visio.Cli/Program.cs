@@ -1,6 +1,9 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using Graphviz2Visio.Core.Parsing;
+using Graphviz2Visio.Core.Validation;
 using Graphviz2Visio.Graphviz;
 using Graphviz2Visio.Visio.Rendering;
 
@@ -33,6 +36,15 @@ namespace Graphviz2Visio.Cli
                     case "plain2visio-batch":
                     case "plain2visio-pages":
                         return RunPlain2VisioBatch(args);
+
+                    case "validate-dot":
+                        return RunValidateDot(args);
+
+                    case "validate-layout":
+                        return RunValidateLayout(args);
+
+                    case "validate":
+                        return RunValidate(args);
 
                     case "where-dot":
                         return RunWhereDot();
@@ -151,6 +163,59 @@ namespace Graphviz2Visio.Cli
             Console.WriteLine("页面数量: " + plainFiles.Count);
             return 0;
         }
+
+        private static int RunValidateDot(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("用法: Graphviz2Visio.Cli validate-dot input.dot");
+                return 1;
+            }
+
+            ValidationResult result = DotRuleValidator.ValidateFile(args[1]);
+            PrintJson(result);
+            return result.Passed ? 0 : 3;
+        }
+
+        private static int RunValidateLayout(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("用法: Graphviz2Visio.Cli validate-layout input.plain");
+                return 1;
+            }
+
+            ValidationResult result = LayoutValidator.Validate(PlainParser.Parse(args[1]));
+            PrintJson(result);
+            return result.Passed ? 0 : 3;
+        }
+
+        private static int RunValidate(string[] args)
+        {
+            if (args.Length < 3)
+            {
+                Console.WriteLine("用法: Graphviz2Visio.Cli validate input.dot input.plain");
+                return 1;
+            }
+
+            var report = new ValidationReport
+            {
+                Dot = DotRuleValidator.ValidateFile(args[1]),
+                Layout = LayoutValidator.Validate(PlainParser.Parse(args[2]))
+            };
+            PrintJson(report);
+            return report.Passed ? 0 : 3;
+        }
+
+        private static void PrintJson(object value)
+        {
+            Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                WriteIndented = true
+            }));
+        }
+
         private static int RunWhereDot()
         {
             string dotExe = GraphvizLocator.FindDotExe();
@@ -166,6 +231,9 @@ namespace Graphviz2Visio.Cli
             Console.WriteLine("  dot2plain    <input.dot>   <output.plain>");
             Console.WriteLine("  plain2visio  <input.plain> <output.vsdx> [--visible]");
             Console.WriteLine("  plain2visio-batch <output.vsdx> <input1.plain> [input2.plain ...] --page-name <中文标题1> [--page-name <中文标题2> ...] [--visible]");
+            Console.WriteLine("  validate-dot <input.dot>");
+            Console.WriteLine("  validate-layout <input.plain>");
+            Console.WriteLine("  validate <input.dot> <input.plain>");
             Console.WriteLine("  where-dot");
             Console.WriteLine();
             Console.WriteLine("示例：");

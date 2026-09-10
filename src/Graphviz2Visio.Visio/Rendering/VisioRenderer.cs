@@ -581,31 +581,7 @@ namespace Graphviz2Visio.Visio.Rendering
 
         private static List<Pt> CreateRoute(EdgeInfo edge, NodeInfo sourceNode, NodeInfo targetNode)
         {
-            var route = new List<Pt>();
-            IList<Pt> routePoints = IsOrthogonalPointChain(edge.Points)
-                ? edge.Points
-                : BezierHelper.SplineToPolyline(edge.Points, Math.Max(6, edge.Points.Count));
-            foreach (Pt point in routePoints)
-                AddRoutePoint(route, point);
-
-            if (route.Count >= 2)
-            {
-                route[0] = AttachToNodeBoundary(sourceNode, route[0], route[1]);
-                route[route.Count - 1] = AttachToNodeBoundary(
-                    targetNode,
-                    route[route.Count - 1],
-                    route[route.Count - 2]);
-                return route;
-            }
-
-            if (sourceNode == null || targetNode == null)
-                return route;
-
-            Pt sourcePort = AttachToNodeBoundary(sourceNode, new Pt(sourceNode.Cx, sourceNode.Cy), new Pt(targetNode.Cx, targetNode.Cy));
-            Pt targetPort = AttachToNodeBoundary(targetNode, new Pt(targetNode.Cx, targetNode.Cy), new Pt(sourceNode.Cx, sourceNode.Cy));
-            AddRoutePoint(route, sourcePort);
-            AddRoutePoint(route, targetPort);
-            return route;
+            return RouteHelper.CreateRoute(edge, sourceNode, targetNode);
         }
 
         private static bool IsOrthogonalPointChain(IList<Pt> points)

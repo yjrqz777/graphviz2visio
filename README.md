@@ -16,6 +16,8 @@ Graphviz2Visio 是一个命令行工具，利用 Graphviz 强大的自动布局�
 
 - **dot2plain** — 调用 Graphviz 将 `.dot` 文件转换为 `plain` 布局格式
 - **plain2visio** — 解析 `plain` 文件并通过 Visio COM 绘制为原生图形
+- **validate-dot** — 检查判断分支、端口、`rank=same`、循环边和标签规则
+- **validate-layout** — 检查线路穿过节点、线线交叉、重叠、长水平线和标签覆盖
 - 自动识别项目内嵌的 Graphviz，无需手动安装到系统 PATH
 - 支持 box / ellipse / diamond 三种节点形状
 - 支持贝塞尔曲线采样、边标签、虚线样式、颜色映射
@@ -64,6 +66,13 @@ dotnet run --project src/Graphviz2Visio.Cli -- dot2plain samples\flow.dot sample
 
 # Plain → Visio
 dotnet run --project src/Graphviz2Visio.Cli -- plain2visio samples\flow.plain output\flow.vsdx --visible
+
+# 两步验证（失败时退出码为 3，并输出 JSON）
+dotnet run --project src/Graphviz2Visio.Cli -- validate-dot samples\flow.dot
+dotnet run --project src/Graphviz2Visio.Cli -- validate-layout samples\flow.plain
+
+# 合并输出两层验证结果
+dotnet run --project src/Graphviz2Visio.Cli -- validate samples\flow.dot samples\flow.plain
 ```
 
 ## 打包 exe
@@ -166,6 +175,9 @@ Graphviz2Visio.Cli <command> [arguments]
 |------|------|------|
 | `dot2plain` | DOT 转 Plain | `dot2plain <input.dot> <output.plain>` |
 | `plain2visio` | Plain 转 Visio | `plain2visio <input.plain> <output.vsdx> [--visible]` |
+| `validate-dot` | 验证 DOT 结构规则 | `validate-dot <input.dot>` |
+| `validate-layout` | 验证 Plain 几何布局 | `validate-layout <input.plain>` |
+| `validate` | 合并执行两层验证 | `validate <input.dot> <input.plain>` |
 | `where-dot` | 显示 dot.exe 路径 | `where-dot` |
 
 `--visible` 参数会在转换过程中显示 Visio 窗口，方便调试。
