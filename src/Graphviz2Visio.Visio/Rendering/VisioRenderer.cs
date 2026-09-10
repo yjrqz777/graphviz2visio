@@ -195,7 +195,14 @@ namespace Graphviz2Visio.Visio.Rendering
             foreach (var node in graph.Nodes)
                 nodesById[node.Id] = node;
 
-            var routesByEdge = CreateRoutes(graph.Edges, nodesById);
+            RoutedLayout routedLayout = RoutingPipeline.Prepare(graph);
+            if (!routedLayout.Passed)
+            {
+                throw new InvalidOperationException(
+                    "正交路由后的布局验证失败，问题数量: " +
+                    routedLayout.Validation.Issues.Count.ToString(CultureInfo.InvariantCulture));
+            }
+            var routesByEdge = routedLayout.Routes;
             var offset = PreparePage((object)page, graph, routesByEdge, 1.0);
             double offsetX = offset.offsetX;
             double offsetY = offset.offsetY;
@@ -488,37 +495,48 @@ namespace Graphviz2Visio.Visio.Rendering
             string displayLabel = GetEdgeDisplayLabel(edge, sourceNode, route);
             bool hasLabel = !string.IsNullOrWhiteSpace(displayLabel);
             bool isDecisionBranch = IsDecisionShape(sourceNode) && hasLabel;
-            int labelSegmentIndex = hasLabel && !isDecisionBranch
-                ? FindNearestSegmentIndex(route, edge.LabelX, edge.LabelY)
-                : -1;
 
-            for (int index = 0; index < route.Count - 1; index++)
-            {
-                Pt startPoint = OffsetPoint(route[index], ox, oy);
-                Pt endPoint = OffsetPoint(route[index + 1], ox, oy);
-                bool endArrow = index == route.Count - 2;
+            dynamic line = DrawPolyline(page, route, ox, oy, dashed);
+            ReleaseCom(line);
 
-                dynamic line = DrawSimpleLine(page, startPoint, endPoint, "black", dashed, endArrow);
-                try
-                {
-                    if (index == labelSegmentIndex)
-                    {
-                        AttachLabelToSegment(
-                            line,
-                            startPoint,
-                            endPoint,
-                            ox + edge.LabelX,
-                            oy + edge.LabelY,
-                            displayLabel);
-                    }
-                }
-                finally
-                {
-                    ReleaseCom(line);
-                }
-            }
             if (isDecisionBranch)
                 DrawDecisionBranchLabel(page, route, ox, oy, displayLabel);
+            else if (hasLabel)
+                DrawEdgeLabel(page, route, ox, oy, edge.LabelX, edge.LabelY, displayLabel);
+        }
+
+        private static void DrawEdgeLabel(
+            dynamic page,
+            IList<Pt> route,
+            double ox,
+            double oy,
+            double preferredX,
+            double preferredY,
+            string label)
+        {
+            int segmentIndex = FindNearestSegmentIndex(
+                new List<Pt>(route), preferredX, preferredY);
+            Pt a = OffsetPoint(route[segmentIndex], ox, oy);
+            Pt b = OffsetPoint(route[segmentIndex + 1], ox, oy);
+            double x = (a.X + b.X) / 2.0;
+            double y = (a.Y + b.Y) / 2.0;
+            if (Math.Abs(a.Y - b.Y) < 0.001)
+                y += 0.13;
+            else
+                x += 0.13;
+
+            dynamic labelShape = page.DrawRectangle(x - 0.16, y - 0.09, x + 0.16, y + 0.09);
+            try
+            {
+                labelShape.Text = label;
+                SafeSetFormula(labelShape, "LinePattern", "0");
+                SafeSetFormula(labelShape, "FillPattern", "0");
+                ApplyTextStyle(labelShape, 8.0);
+            }
+            finally
+            {
+                ReleaseCom(labelShape);
+            }
         }
 
         private static string GetEdgeDisplayLabel(EdgeInfo edge, NodeInfo sourceNode, IList<Pt> route)
@@ -722,6 +740,31 @@ namespace Graphviz2Visio.Visio.Rendering
             return Math.Min(scaleX, scaleY);
         }
 
+
+        private static object DrawPolyline(
+            dynamic page,
+            IList<Pt> route,
+            double ox,
+            double oy,
+            bool dashed)
+        {
+            var coordinates = new double[route.Count * 2];
+            for (int index = 0; index < route.Count; index++)
+            {
+                coordinates[index * 2] = route[index].X + ox;
+                coordinates[index * 2 + 1] = route[index].Y + oy;
+            }
+
+            object points = coordinates;
+            dynamic line = page.DrawPolyline(points, (short)0);
+            SafeSetFormula(line, "LineColor", ColorHelper.ToVisioColorFormula("black", "black"));
+            SafeSetFormula(line, "LineWeight", "0.018 in");
+            SafeSetFormula(line, "BeginArrow", "0");
+            SafeSetFormula(line, "EndArrow", "4");
+            if (dashed)
+                SafeSetFormula(line, "LinePattern", "2");
+            return line;
+        }
 
         private static object DrawSimpleLine(dynamic page, Pt p1, Pt p2, string color, bool dashed, bool endArrow)
         {

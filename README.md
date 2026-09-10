@@ -176,7 +176,7 @@ Graphviz2Visio.Cli <command> [arguments]
 | `dot2plain` | DOT 转 Plain | `dot2plain <input.dot> <output.plain>` |
 | `plain2visio` | Plain 转 Visio | `plain2visio <input.plain> <output.vsdx> [--visible]` |
 | `validate-dot` | 验证 DOT 结构规则 | `validate-dot <input.dot>` |
-| `validate-layout` | 验证 Plain 几何布局 | `validate-layout <input.plain>` |
+| `validate-layout` | 检测原始路径、自动正交路由并验证修复结果 | `validate-layout <input.plain>` |
 | `validate` | 合并执行两层验证 | `validate <input.dot> <input.plain>` |
 | `where-dot` | 显示 dot.exe 路径 | `where-dot` |
 
@@ -211,9 +211,9 @@ Graphviz2Visio/
 
 项目分为 4 个模块，职责清晰：
 
-- **Core** — 纯业务逻辑，不依赖 Graphviz 和 Visio，可独立测试
+- **Core** — 纯业务逻辑，不依赖 Graphviz 和 Visio；负责检测、曼哈顿正交路由和修复后验证
 - **Graphviz** — 封装 Graphviz 的查找和调用，支持自动识别 `tools/Graphviz-*` 目录
-- **Visio** — 使用 dynamic COM 调用 Visio 绘制图形，无需配置 Interop 引用
+- **Visio** — 使用 dynamic COM 调用 Visio 绘制图形；每条逻辑边由一个 `DrawPolyline` 形状输出
 - **Cli** — 命令行入口，解析参数并调度对应模块
 
 ## 示例 DOT 文件

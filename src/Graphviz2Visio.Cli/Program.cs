@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using Graphviz2Visio.Core.Parsing;
 using Graphviz2Visio.Core.Validation;
+using Graphviz2Visio.Core.Utils;
 using Graphviz2Visio.Graphviz;
 using Graphviz2Visio.Visio.Rendering;
 
@@ -185,9 +186,14 @@ namespace Graphviz2Visio.Cli
                 return 1;
             }
 
-            ValidationResult result = LayoutValidator.Validate(PlainParser.Parse(args[1]));
-            PrintJson(result);
-            return result.Passed ? 0 : 3;
+            RoutedLayout layout = RoutingPipeline.Prepare(PlainParser.Parse(args[1]));
+            PrintJson(new
+            {
+                detected = layout.Detected,
+                validation = layout.Validation,
+                passed = layout.Passed
+            });
+            return layout.Passed ? 0 : 3;
         }
 
         private static int RunValidate(string[] args)

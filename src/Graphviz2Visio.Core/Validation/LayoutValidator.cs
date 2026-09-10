@@ -15,19 +15,44 @@ namespace Graphviz2Visio.Core.Validation
             if (graph == null)
                 throw new ArgumentNullException(nameof(graph));
 
-            var result = new ValidationResult { Layer = "layout" };
-            var nodesById = new Dictionary<string, NodeInfo>(StringComparer.Ordinal);
-            foreach (NodeInfo node in graph.Nodes)
-                nodesById[node.Id] = node;
+            return Validate(graph, RouteHelper.CreateRoutes(graph));
+        }
+
+        public static ValidationResult ValidateRaw(GraphInfo graph)
+        {
+            if (graph == null)
+                throw new ArgumentNullException(nameof(graph));
 
             var routes = new Dictionary<EdgeInfo, List<Pt>>();
             foreach (EdgeInfo edge in graph.Edges)
+                routes[edge] = edge.Points == null ? new List<Pt>() : new List<Pt>(edge.Points);
+            return ValidateCore(graph, routes, "layout-detected");
+        }
+
+        public static ValidationResult Validate(
+            GraphInfo graph,
+            IDictionary<EdgeInfo, List<Pt>> routes)
+        {
+            if (graph == null)
+                throw new ArgumentNullException(nameof(graph));
+            if (routes == null)
+                throw new ArgumentNullException(nameof(routes));
+
+            return ValidateCore(graph, routes, "layout");
+        }
+
+        private static ValidationResult ValidateCore(
+            GraphInfo graph,
+            IDictionary<EdgeInfo, List<Pt>> suppliedRoutes,
+            string layer)
+        {
+            var result = new ValidationResult { Layer = layer };
+            var routes = new Dictionary<EdgeInfo, List<Pt>>();
+            foreach (EdgeInfo edge in graph.Edges)
             {
-                NodeInfo source;
-                NodeInfo target;
-                nodesById.TryGetValue(edge.From ?? string.Empty, out source);
-                nodesById.TryGetValue(edge.To ?? string.Empty, out target);
-                List<Pt> route = RouteHelper.CreateRoute(edge, source, target);
+                List<Pt> route;
+                if (!suppliedRoutes.TryGetValue(edge, out route) || route == null)
+                    route = new List<Pt>();
                 routes[edge] = route;
 
                 if (route.Count < 2)
@@ -35,6 +60,15 @@ namespace Graphviz2Visio.Core.Validation
                     result.Add(
                         "layout.route.missing",
                         "连线没有足够的路径点。",
+                        edge: EdgeName(edge));
+                    continue;
+                }
+
+                if (!RouteHelper.IsOrthogonalPointChain(route))
+                {
+                    result.Add(
+                        "layout.non-orthogonal-segment",
+                        "连线包含斜线段；最终路径只允许水平或垂直线段。",
                         edge: EdgeName(edge));
                 }
             }
