@@ -756,7 +756,7 @@ namespace Graphviz2Visio.Visio.Rendering
             }
 
             object points = coordinates;
-            dynamic line = page.DrawPolyline(points, (short)0);
+            dynamic line = page.DrawPolyline(ref points, (short)8);
             SafeSetFormula(line, "LineColor", ColorHelper.ToVisioColorFormula("black", "black"));
             SafeSetFormula(line, "LineWeight", "0.018 in");
             SafeSetFormula(line, "BeginArrow", "0");
