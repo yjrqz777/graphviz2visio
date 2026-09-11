@@ -11,5 +11,6 @@
     <ProjectReference Include="..\Graphviz2Visio.Core\Graphviz2Visio.Core.csproj" />
     <ProjectReference Include="..\Graphviz2Visio.Graphviz\Graphviz2Visio.Graphviz.csproj" />
     <ProjectReference Include="..\Graphviz2Visio.Visio\Graphviz2Visio.Visio.csproj" />
+    <ProjectReference Include="..\Graphviz2Visio.Vsdx\Graphviz2Visio.Vsdx.csproj" />
   </ItemGroup>
 </Project>

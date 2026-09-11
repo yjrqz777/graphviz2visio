@@ -4,5 +4,6 @@
     <Project Path="src/Graphviz2Visio.Core/Graphviz2Visio.Core.csproj" />
     <Project Path="src/Graphviz2Visio.Graphviz/Graphviz2Visio.Graphviz.csproj" />
     <Project Path="src/Graphviz2Visio.Visio/Graphviz2Visio.Visio.csproj" />
+    <Project Path="src/Graphviz2Visio.Vsdx/Graphviz2Visio.Vsdx.csproj" />
   </Folder>
 </Solution>

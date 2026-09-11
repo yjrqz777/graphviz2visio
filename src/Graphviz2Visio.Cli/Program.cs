@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -7,6 +8,8 @@ using Graphviz2Visio.Core.Validation;
 using Graphviz2Visio.Core.Utils;
 using Graphviz2Visio.Graphviz;
 using Graphviz2Visio.Visio.Rendering;
+using Graphviz2Visio.Vsdx.Rendering;
+using Graphviz2Visio.Vsdx.Validation;
 
 namespace Graphviz2Visio.Cli
 {
@@ -33,10 +36,16 @@ namespace Graphviz2Visio.Cli
 
                     case "plain2visio":
                     case "to-visio":
-                        return RunPlain2Visio(args);
+                        return RunPlain2Visio(args, false);
                     case "plain2visio-batch":
                     case "plain2visio-pages":
-                        return RunPlain2VisioBatch(args);
+                        return RunPlain2VisioBatch(args, false);
+
+                    case "plain2visio-com":
+                        return RunPlain2Visio(args, true);
+
+                    case "plain2visio-com-batch":
+                        return RunPlain2VisioBatch(args, true);
 
                     case "validate-dot":
                         return RunValidateDot(args);
@@ -46,6 +55,9 @@ namespace Graphviz2Visio.Cli
 
                     case "validate":
                         return RunValidate(args);
+
+                    case "validate-vsdx":
+                        return RunValidateVsdx(args);
 
                     case "where-dot":
                         return RunWhereDot();
@@ -83,7 +95,7 @@ namespace Graphviz2Visio.Cli
             return 0;
         }
 
-        private static int RunPlain2Visio(string[] args)
+        private static int RunPlain2Visio(string[] args, bool useComRenderer)
         {
             if (args.Length < 3)
             {
@@ -96,13 +108,22 @@ namespace Graphviz2Visio.Cli
             string vsdxFile = args[2];
             bool visible = args.Skip(3).Any(a => a.Equals("--visible", StringComparison.OrdinalIgnoreCase));
 
-            VisioRenderer.RenderPlainToVisio(plainFile, vsdxFile, visible);
+            if (useComRenderer)
+            {
+                VisioRenderer.RenderPlainToVisio(plainFile, vsdxFile, visible);
+            }
+            else
+            {
+                VsdxXmlRenderer.RenderPlainToVsdx(plainFile, vsdxFile);
+                if (visible)
+                    OpenFile(vsdxFile);
+            }
 
             Console.WriteLine("已生成 Visio: " + Path.GetFullPath(vsdxFile));
             return 0;
         }
 
-        private static int RunPlain2VisioBatch(string[] args)
+        private static int RunPlain2VisioBatch(string[] args, bool useComRenderer)
         {
             if (args.Length < 4)
             {
@@ -158,7 +179,16 @@ namespace Graphviz2Visio.Cli
                 return 1;
             }
 
-            VisioRenderer.RenderPlainFilesToVisio(plainFiles, vsdxFile, visible, pageNames);
+            if (useComRenderer)
+            {
+                VisioRenderer.RenderPlainFilesToVisio(plainFiles, vsdxFile, visible, pageNames);
+            }
+            else
+            {
+                VsdxXmlRenderer.RenderPlainFilesToVsdx(plainFiles, vsdxFile, pageNames);
+                if (visible)
+                    OpenFile(vsdxFile);
+            }
 
             Console.WriteLine("已生成 Visio: " + Path.GetFullPath(vsdxFile));
             Console.WriteLine("页面数量: " + plainFiles.Count);
@@ -213,6 +243,19 @@ namespace Graphviz2Visio.Cli
             return report.Passed ? 0 : 3;
         }
 
+        private static int RunValidateVsdx(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.WriteLine("用法: Graphviz2Visio.Cli validate-vsdx input.vsdx");
+                return 1;
+            }
+
+            ValidationResult result = VsdxPackageValidator.ValidateFile(args[1]);
+            PrintJson(result);
+            return result.Passed ? 0 : 3;
+        }
+
         private static void PrintJson(object value)
         {
             Console.WriteLine(JsonSerializer.Serialize(value, new JsonSerializerOptions
@@ -229,6 +272,15 @@ namespace Graphviz2Visio.Cli
             return 0;
         }
 
+        private static void OpenFile(string path)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = Path.GetFullPath(path),
+                UseShellExecute = true
+            });
+        }
+
         private static void PrintUsage()
         {
             Console.WriteLine("Graphviz2Visio");
@@ -237,9 +289,12 @@ namespace Graphviz2Visio.Cli
             Console.WriteLine("  dot2plain    <input.dot>   <output.plain>");
             Console.WriteLine("  plain2visio  <input.plain> <output.vsdx> [--visible]");
             Console.WriteLine("  plain2visio-batch <output.vsdx> <input1.plain> [input2.plain ...] --page-name <中文标题1> [--page-name <中文标题2> ...] [--visible]");
+            Console.WriteLine("  plain2visio-com <input.plain> <output.vsdx> [--visible]");
+            Console.WriteLine("  plain2visio-com-batch <output.vsdx> <input1.plain> [...] --page-name <标题> [...]");
             Console.WriteLine("  validate-dot <input.dot>");
             Console.WriteLine("  validate-layout <input.plain>");
             Console.WriteLine("  validate <input.dot> <input.plain>");
+            Console.WriteLine("  validate-vsdx <input.vsdx>");
             Console.WriteLine("  where-dot");
             Console.WriteLine();
             Console.WriteLine("示例：");
