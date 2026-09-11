@@ -371,6 +371,7 @@ namespace Graphviz2Visio.Vsdx.Validation
             string name,
             out double value)
         {
+            value = 0;
             XElement cell = parent.Elements(visio + "Cell")
                 .FirstOrDefault(element => string.Equals(
                     (string)element.Attribute("N"),
