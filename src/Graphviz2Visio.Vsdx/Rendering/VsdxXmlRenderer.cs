@@ -434,6 +434,14 @@ namespace Graphviz2Visio.Vsdx.Rendering
                     Cell(visio, "Y", localY)));
             }
             shape.Add(geometry);
+            shape.Add(new XElement(
+                visio + "Section",
+                new XAttribute("N", "ShapeLayout"),
+                new XElement(
+                    visio + "Row",
+                    new XAttribute("IX", "0"),
+                    Cell(visio, "ConFixedCode", "1"),
+                    Cell(visio, "ShapeRouteStyle", "1"))));
             return shape;
         }
 
