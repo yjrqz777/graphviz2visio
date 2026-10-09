@@ -273,6 +273,7 @@ namespace Graphviz2Visio.Vsdx.Rendering
             root.Add(shapes);
 
             int shapeId = 1;
+            var nodeShapeIds = new Dictionary<string, int>(StringComparer.Ordinal);
             for (int index = 0; index < page.Graph.Edges.Count; index++)
             {
                 EdgeInfo edge = page.Graph.Edges[index];
@@ -308,16 +309,55 @@ namespace Graphviz2Visio.Vsdx.Rendering
             for (int index = 0; index < page.Graph.Nodes.Count; index++)
             {
                 NodeInfo node = page.Graph.Nodes[index];
+                int nodeShapeId = shapeId++;
+                nodeShapeIds[node.Id] = nodeShapeId;
                 shapes.Add(BuildNodeShape(
                     visio,
-                    shapeId++,
+                    nodeShapeId,
                     index + 1,
                     node,
                     page.OffsetX,
                     page.OffsetY));
             }
 
+            var connects = new XElement(visio + "Connects");
+            for (int index = 0; index < page.Graph.Edges.Count; index++)
+            {
+                EdgeInfo edge = page.Graph.Edges[index];
+                int edgeShapeId = index + 1;
+                int fromShapeId;
+                int toShapeId;
+                if (!nodeShapeIds.TryGetValue(edge.From ?? string.Empty, out fromShapeId) ||
+                    !nodeShapeIds.TryGetValue(edge.To ?? string.Empty, out toShapeId))
+                {
+                    throw new InvalidDataException(
+                        "Edge endpoints must resolve to node shapes before VSDX connections are written: " +
+                        edge.From + " -> " + edge.To);
+                }
+
+                connects.Add(BuildConnect(visio, edgeShapeId, "BeginX", 9, fromShapeId));
+                connects.Add(BuildConnect(visio, edgeShapeId, "EndX", 12, toShapeId));
+            }
+            root.Add(connects);
+
             return NewDocument(root);
+        }
+
+        private static XElement BuildConnect(
+            XNamespace visio,
+            int edgeShapeId,
+            string edgeCell,
+            int edgePart,
+            int nodeShapeId)
+        {
+            return new XElement(
+                visio + "Connect",
+                new XAttribute("FromSheet", edgeShapeId),
+                new XAttribute("FromCell", edgeCell),
+                new XAttribute("FromPart", edgePart),
+                new XAttribute("ToSheet", nodeShapeId),
+                new XAttribute("ToCell", "PinX"),
+                new XAttribute("ToPart", 3));
         }
 
         private static XElement BuildEdgeShape(
@@ -429,9 +469,9 @@ namespace Graphviz2Visio.Vsdx.Rendering
                 Cell(visio, "LocPinX", width / 2.0),
                 Cell(visio, "LocPinY", height / 2.0),
                 Cell(visio, "Angle", 0),
-                Cell(visio, "LineColor", "#000000"),
+                Cell(visio, "LineColor", NormalizeVisioColor(node.Color, "#000000")),
                 Cell(visio, "LineWeight", 0.018, "IN"),
-                Cell(visio, "FillForegnd", "#D9D9D9"),
+                Cell(visio, "FillForegnd", ResolveNodeFillColor(node, shapeType)),
                 Cell(visio, "FillPattern", "1"),
                 Cell(visio, "VerticalAlign", "1"));
 
@@ -447,6 +487,56 @@ namespace Graphviz2Visio.Vsdx.Rendering
                 : RectangleGeometry(visio, width, height));
             shape.Add(new XElement(visio + "Text", NormalizeText(node.Label ?? node.Id)));
             return shape;
+        }
+
+        private static string ResolveNodeFillColor(NodeInfo node, string shapeType)
+        {
+            string requested = NormalizeVisioColor(node.FillColor, null);
+            if (requested != null &&
+                !string.Equals(requested, "#D9D9D9", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(requested, "#FFFFFF", StringComparison.OrdinalIgnoreCase))
+                return requested;
+
+            switch (shapeType)
+            {
+                case "diamond":
+                    return "#FFE8A3";
+                case "oval":
+                case "ellipse":
+                    return "#CDEBD5";
+                case "parallelogram":
+                    return "#D6EEF5";
+                case "note":
+                    return "#FCE8D5";
+                default:
+                    return "#DCEBFA";
+            }
+        }
+
+        private static string NormalizeVisioColor(string color, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(color))
+                return fallback;
+
+            string value = color.Trim();
+            if (value.Length == 4 && value[0] == '#')
+                return "#" + value[1] + value[1] + value[2] + value[2] + value[3] + value[3];
+
+            if (value.Length == 7 && value[0] == '#' &&
+                value.Skip(1).All(Uri.IsHexDigit))
+                return value.ToUpperInvariant();
+
+            var named = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "black", "#000000" }, { "white", "#FFFFFF" },
+                { "red", "#FF0000" }, { "green", "#008000" },
+                { "blue", "#0000FF" }, { "yellow", "#FFFF00" },
+                { "gray", "#808080" }, { "grey", "#808080" },
+                { "lightgray", "#D3D3D3" }, { "lightgrey", "#D3D3D3" },
+                { "orange", "#FFA500" }, { "purple", "#800080" }
+            };
+            string normalized;
+            return named.TryGetValue(value, out normalized) ? normalized : fallback;
         }
 
         private static XElement BuildLabelShape(
