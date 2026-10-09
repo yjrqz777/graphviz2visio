@@ -397,6 +397,7 @@ namespace Graphviz2Visio.Vsdx.Rendering
                 Cell(visio, "LocPinX", width / 2.0),
                 Cell(visio, "LocPinY", 0),
                 Cell(visio, "Angle", angle),
+                Cell(visio, "OneD", "1"),
                 Cell(visio, "BeginX", begin.X),
                 Cell(visio, "BeginY", begin.Y),
                 Cell(visio, "EndX", end.X),
