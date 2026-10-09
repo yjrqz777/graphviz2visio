@@ -212,6 +212,7 @@ namespace Graphviz2Visio.Vsdx.Validation
             }
 
             ValidateEdgeConnections(document.Root, visio, edges, nodes, pageName, result);
+            ValidateConnectorRouting(visio, edges, pageName, result);
 
             foreach (XElement edge in edges)
             {
@@ -302,6 +303,38 @@ namespace Graphviz2Visio.Vsdx.Validation
                 result.Add("vsdx.edge.connection.target",
                     "页面 '" + pageName + "' 的边端点没有粘附到有效节点。",
                     edge: edgeName);
+            }
+        }
+
+        private static void ValidateConnectorRouting(
+            XNamespace visio,
+            IList<XElement> edges,
+            string pageName,
+            ValidationResult result)
+        {
+            foreach (XElement edge in edges)
+            {
+                string edgeName = (string)edge.Attribute("NameU") ?? string.Empty;
+                XElement layout = edge.Elements(visio + "Section")
+                    .FirstOrDefault(section => string.Equals(
+                        (string)section.Attribute("N"),
+                        "ShapeLayout",
+                        StringComparison.Ordinal));
+                XElement row = layout == null
+                    ? null
+                    : layout.Elements(visio + "Row").FirstOrDefault();
+                double reroute;
+                double routeStyle;
+                if (row == null ||
+                    !TryGetCell(row, visio, "ConFixedCode", out reroute) ||
+                    !TryGetCell(row, visio, "ShapeRouteStyle", out routeStyle) ||
+                    Math.Abs(reroute - 1) >= Epsilon ||
+                    Math.Abs(routeStyle - 1) >= Epsilon)
+                {
+                    result.Add("vsdx.edge.routing.glue",
+                        "页面 '" + pageName + "' 的边未设置按需直角重路由。",
+                        edge: edgeName);
+                }
             }
         }
 
