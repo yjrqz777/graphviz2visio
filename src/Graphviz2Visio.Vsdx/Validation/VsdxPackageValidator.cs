@@ -199,6 +199,10 @@ namespace Graphviz2Visio.Vsdx.Validation
                 .Where(shape => ((string)shape.Attribute("NameU") ?? string.Empty)
                     .StartsWith("Edge_", StringComparison.Ordinal))
                 .ToList();
+            List<XElement> nodes = shapes
+                .Where(shape => ((string)shape.Attribute("NameU") ?? string.Empty)
+                    .StartsWith("Node_", StringComparison.Ordinal))
+                .ToList();
             if (expectedEdgeCount.HasValue && edges.Count != expectedEdgeCount.Value)
             {
                 result.Add(
@@ -207,11 +211,97 @@ namespace Graphviz2Visio.Vsdx.Validation
                     expectedEdgeCount.Value + "，实际 " + edges.Count + "。");
             }
 
+            ValidateEdgeConnections(document.Root, visio, edges, nodes, pageName, result);
+
             foreach (XElement edge in edges)
             {
                 ValidateEdgeGeometry(visio, edge, pageName, result);
                 if (result.Issues.Count >= MaxIssues)
                     return;
+            }
+        }
+
+        private static void ValidateEdgeConnections(
+            XElement pageRoot,
+            XNamespace visio,
+            IList<XElement> edges,
+            IList<XElement> nodes,
+            string pageName,
+            ValidationResult result)
+        {
+            XElement connectsElement = pageRoot.Element(visio + "Connects");
+            if (connectsElement == null)
+            {
+                if (edges.Count > 0)
+                    result.Add("vsdx.edge.connections.missing",
+                        "页面 '" + pageName + "' 缺少 Connects，边无法粘附到节点。");
+                return;
+            }
+
+            var nodeIds = new HashSet<string>(
+                nodes.Select(node => (string)node.Attribute("ID") ?? string.Empty),
+                StringComparer.Ordinal);
+            List<XElement> connects = connectsElement.Elements(visio + "Connect").ToList();
+            foreach (XElement edge in edges)
+            {
+                string edgeId = (string)edge.Attribute("ID") ?? string.Empty;
+                List<XElement> endpointConnections = connects
+                    .Where(connect => string.Equals(
+                        (string)connect.Attribute("FromSheet"),
+                        edgeId,
+                        StringComparison.Ordinal))
+                    .ToList();
+                List<XElement> beginConnections = endpointConnections
+                    .Where(connect => string.Equals(
+                        (string)connect.Attribute("FromCell"),
+                        "BeginX",
+                        StringComparison.Ordinal))
+                    .ToList();
+                List<XElement> endConnections = endpointConnections
+                    .Where(connect => string.Equals(
+                        (string)connect.Attribute("FromCell"),
+                        "EndX",
+                        StringComparison.Ordinal))
+                    .ToList();
+
+                ValidateEndpointConnection(
+                    beginConnections, nodeIds, edgeId, "BeginX", pageName, result);
+                ValidateEndpointConnection(
+                    endConnections, nodeIds, edgeId, "EndX", pageName, result);
+
+                if (endpointConnections.Count != 2)
+                    result.Add("vsdx.edge.connections.count",
+                        "页面 '" + pageName + "' 的边必须恰有两个节点粘附关系。",
+                        edge: (string)edge.Attribute("NameU"));
+            }
+        }
+
+        private static void ValidateEndpointConnection(
+            IList<XElement> connections,
+            ISet<string> nodeIds,
+            string edgeId,
+            string endpoint,
+            string pageName,
+            ValidationResult result)
+        {
+            string edgeName = "Edge_" + edgeId;
+            if (connections.Count != 1)
+            {
+                result.Add("vsdx.edge.connection.endpoint",
+                    "页面 '" + pageName + "' 的边端点缺少唯一的节点粘附关系: " + endpoint,
+                    edge: edgeName);
+                return;
+            }
+
+            XElement connect = connections[0];
+            string targetId = (string)connect.Attribute("ToSheet") ?? string.Empty;
+            if (!nodeIds.Contains(targetId) ||
+                !string.Equals((string)connect.Attribute("ToCell"), "PinX", StringComparison.Ordinal) ||
+                !string.Equals((string)connect.Attribute("ToPart"), "3", StringComparison.Ordinal))
+            {
+                result.Add("vsdx.edge.connection.target",
+                    "页面 '" + pageName + "' 的边端点没有粘附到有效节点。",
+                    edge: edgeName);
             }
         }
 
