@@ -349,7 +349,10 @@ namespace Graphviz2Visio.Vsdx.Validation
             double beginY;
             double endX;
             double endY;
-            if (!TryGetCell(edge, visio, "BeginX", out beginX) ||
+            double oneD;
+            if (!TryGetCell(edge, visio, "OneD", out oneD) ||
+                Math.Abs(oneD - 1) >= Epsilon ||
+                !TryGetCell(edge, visio, "BeginX", out beginX) ||
                 !TryGetCell(edge, visio, "BeginY", out beginY) ||
                 !TryGetCell(edge, visio, "EndX", out endX) ||
                 !TryGetCell(edge, visio, "EndY", out endY))
